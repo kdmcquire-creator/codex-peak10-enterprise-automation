@@ -6,7 +6,7 @@ Converts between domain objects and JSON-safe dicts for API transport.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -141,4 +141,42 @@ def deserialize_budget(data: dict[str, Any]) -> BudgetConstraint:
     return BudgetConstraint(
         total_budget=currency(data["total_budget"]),
         reserved_amount=currency(data.get("reserved_amount", "0.00")),
+    )
+
+
+def deserialize_line_item(data: dict[str, Any]) -> AllocationLineItem:
+    return AllocationLineItem(
+        invoice_id=data.get("invoice_id", ""),
+        vendor_id=data.get("vendor_id", ""),
+        vendor_name=data.get("vendor_name", ""),
+        vendor_priority=VendorPriority(data.get("vendor_priority", VendorPriority.STANDARD.value)),
+        invoice_amount=currency(data.get("invoice_amount", "0.00")),
+        allocated_amount=currency(data.get("allocated_amount", "0.00")),
+        allocation_pass=int(data.get("allocation_pass", 0)),
+        is_partial=bool(data.get("is_partial", False)),
+        notes=data.get("notes", ""),
+    )
+
+
+def deserialize_allocation_result(data: dict[str, Any]) -> AllocationResult:
+    budget_data = data.get("budget", {})
+    return AllocationResult(
+        run_id=data.get("run_id", ""),
+        status=AllocationRunStatus(data.get("status", AllocationRunStatus.DRAFT.value)),
+        budget=deserialize_budget(budget_data),
+        total_allocated=currency(data.get("total_allocated", "0.00")),
+        total_deferred=currency(data.get("total_deferred", "0.00")),
+        budget_remaining=currency(data.get("budget_remaining", "0.00")),
+        line_items=[
+            deserialize_line_item(item)
+            for item in data.get("line_items", [])
+        ],
+        deferred_items=[
+            deserialize_line_item(item)
+            for item in data.get("deferred_items", [])
+        ],
+        pass_summaries=data.get("pass_summaries", []),
+        created_at=datetime.fromisoformat(data["created_at"])
+        if data.get("created_at")
+        else datetime.now(timezone.utc),
     )

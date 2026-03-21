@@ -8,3 +8,9 @@ build/
 .env
 local.settings.json
 .venv/
+.venv-codex/
+.tools/
+.basetemp/
+.pytest-tmp/
+pytest-cache-files-*/
+*.db

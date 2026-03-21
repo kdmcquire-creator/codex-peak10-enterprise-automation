@@ -12,10 +12,25 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger("email-intel.doc-intelligence")
+
+
+INVOICE_FILENAME_PATTERNS = [
+    r"(?i)invoice",
+    r"(?i)\bap\b",
+    r"(?i)statement",
+]
+
+RECEIPT_FILENAME_PATTERNS = [
+    r"(?i)receipt",
+    r"(?i)itinerary",
+    r"(?i)booking",
+    r"(?i)confirmation",
+]
 
 
 @dataclass
@@ -27,6 +42,19 @@ class ExtractionResult:
     confidence: float = 0.0
     tables_found: int = 0
     key_value_pairs: dict[str, str] | None = None
+
+
+def suggest_extraction_mode(filename: str) -> str:
+    """Suggest the best Document Intelligence model for a filename."""
+    for pattern in INVOICE_FILENAME_PATTERNS:
+        if re.search(pattern, filename):
+            return "invoice"
+
+    for pattern in RECEIPT_FILENAME_PATTERNS:
+        if re.search(pattern, filename):
+            return "receipt"
+
+    return "text"
 
 
 class DocumentIntelligenceClient:
@@ -54,6 +82,9 @@ class DocumentIntelligenceClient:
     def _init_client(self) -> None:
         if not self._endpoint:
             logger.info("No AZURE_DI_ENDPOINT — Document Intelligence unavailable")
+            return
+        if not self._api_key:
+            logger.info("No AZURE_DI_KEY - Document Intelligence unavailable")
             return
 
         try:

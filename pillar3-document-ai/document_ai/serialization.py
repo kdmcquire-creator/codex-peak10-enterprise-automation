@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from .models import (
+    ClassificationConfidence,
     ClassificationResult,
     CorrectionLog,
     DocumentType,
@@ -81,3 +83,81 @@ def serialize_correction(c: CorrectionLog) -> dict[str, Any]:
         "corrected_at": c.corrected_at.isoformat(),
         "notes": c.notes,
     }
+
+
+def deserialize_metadata(data: dict[str, Any]) -> ExtractedMetadata:
+    return ExtractedMetadata(
+        vendor_name=data.get("vendor_name"),
+        counterparty=data.get("counterparty"),
+        effective_date=data.get("effective_date"),
+        expiration_date=data.get("expiration_date"),
+        amount=data.get("amount"),
+        well_name=data.get("well_name"),
+        lease_name=data.get("lease_name"),
+        county=data.get("county"),
+        state=data.get("state"),
+        reference_number=data.get("reference_number"),
+        custom_fields=data.get("custom_fields", {}),
+    )
+
+
+def deserialize_classification(data: dict[str, Any]) -> ClassificationResult:
+    return ClassificationResult(
+        document_type=DocumentType(data.get("document_type", DocumentType.UNKNOWN.value)),
+        confidence=float(data.get("confidence", 0.0)),
+        confidence_level=ClassificationConfidence(
+            data.get("confidence_level", ClassificationConfidence.LOW.value)
+        ),
+        metadata=deserialize_metadata(data.get("metadata", {})),
+        reasoning=data.get("reasoning", ""),
+    )
+
+
+def deserialize_filing(data: dict[str, Any]) -> FilingRecommendation:
+    return FilingRecommendation(
+        recommended_path=data.get("recommended_path", ""),
+        standardized_name=data.get("standardized_name", ""),
+        document_type=DocumentType(data.get("document_type", DocumentType.UNKNOWN.value)),
+        confidence_level=ClassificationConfidence(
+            data.get("confidence_level", ClassificationConfidence.LOW.value)
+        ),
+        requires_review=bool(data.get("requires_review", True)),
+        alternative_paths=data.get("alternative_paths", []),
+    )
+
+
+def deserialize_staged_document(data: dict[str, Any]) -> StagedDocument:
+    document = StagedDocument(
+        document_id=data.get("document_id", ""),
+        original_filename=data.get("original_filename", ""),
+        file_extension=data.get("file_extension", ""),
+        source=data.get("source", "upload"),
+        source_detail=data.get("source_detail", ""),
+        staged_at=datetime.fromisoformat(data["staged_at"])
+        if data.get("staged_at")
+        else datetime.now(timezone.utc),
+        file_size_bytes=int(data.get("file_size_bytes", 0)),
+        content_hash=data.get("content_hash", ""),
+        status=data.get("status", "pending"),
+    )
+    if data.get("classification"):
+        document.classification = deserialize_classification(data["classification"])
+    if data.get("filing"):
+        document.filing = deserialize_filing(data["filing"])
+    return document
+
+
+def deserialize_correction(data: dict[str, Any]) -> CorrectionLog:
+    return CorrectionLog(
+        correction_id=data.get("correction_id", ""),
+        document_id=data.get("document_id", ""),
+        original_type=DocumentType(data.get("original_type", DocumentType.UNKNOWN.value)),
+        corrected_type=DocumentType(data.get("corrected_type", DocumentType.UNKNOWN.value)),
+        original_path=data.get("original_path", ""),
+        corrected_path=data.get("corrected_path", ""),
+        corrected_by=data.get("corrected_by", "user"),
+        corrected_at=datetime.fromisoformat(data["corrected_at"])
+        if data.get("corrected_at")
+        else datetime.now(timezone.utc),
+        notes=data.get("notes", ""),
+    )

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+import os
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import azure.functions as func
@@ -27,6 +28,7 @@ from expense_hub.models import (
     ExpenseBucket,
     ExpenseClaim,
 )
+from expense_hub.repository import get_repository
 from expense_hub.serialization import (
     serialize_expense_claim,
     serialize_pillar1_payload,
@@ -38,8 +40,7 @@ logger = logging.getLogger("expense-hub")
 
 _engine = ClassificationEngine()
 _wall = ChineseWall()
-_transaction_store: dict[str, BankTransaction] = {}
-_claim_store: dict[str, ExpenseClaim] = {}
+_repository = get_repository()
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +85,7 @@ def classify_transactions(req: func.HttpRequest) -> func.HttpResponse:
     classified = _engine.classify_batch(transactions)
 
     for txn in classified:
-        _transaction_store[txn.transaction_id] = txn
+        _repository.save_transaction(txn)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -119,7 +120,7 @@ def create_claim(req: func.HttpRequest) -> func.HttpResponse:
     if not txn_id:
         return _error("'transaction_id' is required", 400)
 
-    txn = _transaction_store.get(txn_id)
+    txn = _repository.get_transaction(txn_id)
     if not txn:
         return _error(f"Transaction '{txn_id}' not found", 404)
 
@@ -132,7 +133,8 @@ def create_claim(req: func.HttpRequest) -> func.HttpResponse:
     except ChineseWallViolation as e:
         return _error(str(e), 403)
 
-    _claim_store[claim.claim_id] = claim
+    _repository.save_transaction(txn)
+    _repository.save_claim(claim)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -156,7 +158,7 @@ def approve_claim(req: func.HttpRequest) -> func.HttpResponse:
         return _error("Invalid JSON", 400)
 
     claim_id = body.get("claim_id")
-    claim = _claim_store.get(claim_id)  # type: ignore[arg-type]
+    claim = _repository.get_claim(claim_id)  # type: ignore[arg-type]
     if not claim:
         return _error(f"Claim '{claim_id}' not found", 404)
 
@@ -164,6 +166,7 @@ def approve_claim(req: func.HttpRequest) -> func.HttpResponse:
         return _error(f"Claim is '{claim.status.value}', cannot approve", 409)
 
     claim.status = ClaimStatus.APPROVED
+    _repository.save_claim(claim)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -189,7 +192,7 @@ def push_to_ap(req: func.HttpRequest) -> func.HttpResponse:
         return _error("Invalid JSON", 400)
 
     claim_id = body.get("claim_id")
-    claim = _claim_store.get(claim_id)  # type: ignore[arg-type]
+    claim = _repository.get_claim(claim_id)  # type: ignore[arg-type]
     if not claim:
         return _error(f"Claim '{claim_id}' not found", 404)
 
@@ -198,6 +201,7 @@ def push_to_ap(req: func.HttpRequest) -> func.HttpResponse:
         _wall.validate_no_leak(payload)
     except ChineseWallViolation as e:
         return _error(str(e), 403)
+    _repository.save_claim(claim)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -237,11 +241,12 @@ def attach_receipt(req: func.HttpRequest) -> func.HttpResponse:
     if not txn_id or not receipt_ref:
         return _error("'transaction_id' and 'receipt_ref' are required", 400)
 
-    txn = _transaction_store.get(txn_id)
+    txn = _repository.get_transaction(txn_id)
     if not txn:
         return _error(f"Transaction '{txn_id}' not found", 404)
 
     txn.receipt_ref = receipt_ref
+    _repository.save_transaction(txn)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -265,10 +270,21 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "status": "healthy",
             "service": "expense-hub",
             "version": "1.0.0",
-            "timestamp": datetime.utcnow().isoformat(),
-            "transactions_stored": len(_transaction_store),
-            "claims_created": len(_claim_store),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "transactions_stored": _repository.count_transactions(),
+            "claims_created": _repository.count_claims(),
             "wall_crossings": len(_wall.audit_log),
+            "persistence": {
+                "backend": "sqlite",
+                "db_path": _repository.db_path,
+            },
+            "readiness": {
+                "durable_storage_ready": True,
+                "plaid_configured": bool(
+                    os.environ.get("PLAID_CLIENT_ID") and os.environ.get("PLAID_SECRET")
+                ),
+                "receipt_routing_ready": bool(os.environ.get("PILLAR2_BASE_URL")),
+            },
         }),
         mimetype="application/json",
         status_code=200,

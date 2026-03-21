@@ -7,7 +7,7 @@ Uses Cosmos DB when available, in-memory fallback otherwise.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from .document_models import CorrectionLog, DocumentType
@@ -41,7 +41,7 @@ class CorrectionStore:
             original_path=original_path,
             corrected_path=corrected_path,
             corrected_by=corrected_by,
-            corrected_at=datetime.utcnow(),
+            corrected_at=datetime.now(timezone.utc),
             notes=notes,
         )
         self._corrections.append(entry)

@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger("email-intel.cosmos")
@@ -138,6 +138,10 @@ class CosmosDataStore:
     def is_connected(self) -> bool:
         return not self._using_memory
 
+    @property
+    def storage_backend(self) -> str:
+        return "cosmos" if self.is_connected else "in_memory"
+
     # -- Container accessors ------------------------------------------------
 
     def _container(self, name: str) -> Any:
@@ -151,7 +155,7 @@ class CosmosDataStore:
             triage_data["id"] = triage_data.get("message_id", str(uuid.uuid4()))
         if "partition_date" not in triage_data:
             triage_data["partition_date"] = date.today().isoformat()
-        triage_data["saved_at"] = datetime.utcnow().isoformat()
+        triage_data["saved_at"] = datetime.now(timezone.utc).isoformat()
         return self._container("triage_results").upsert_item(triage_data)
 
     def get_triage_result(self, message_id: str) -> Optional[dict[str, Any]]:
@@ -177,12 +181,15 @@ class CosmosDataStore:
             )
         )
 
+    def count_triage_results(self) -> int:
+        return self._count_items("triage_results")
+
     # -- Draft responses ----------------------------------------------------
 
     def save_draft(self, draft_data: dict[str, Any]) -> dict[str, Any]:
         if "id" not in draft_data:
             draft_data["id"] = draft_data.get("draft_id", str(uuid.uuid4()))
-        draft_data["saved_at"] = datetime.utcnow().isoformat()
+        draft_data["saved_at"] = datetime.now(timezone.utc).isoformat()
         return self._container("draft_responses").upsert_item(draft_data)
 
     def get_draft(self, draft_id: str, message_id: str) -> Optional[dict[str, Any]]:
@@ -202,6 +209,9 @@ class CosmosDataStore:
             )
         )
 
+    def count_drafts(self) -> int:
+        return self._count_items("draft_responses")
+
     def delete_draft(self, draft_id: str, message_id: str) -> None:
         self._container("draft_responses").delete_item(draft_id, partition_key=message_id)
 
@@ -210,7 +220,7 @@ class CosmosDataStore:
     def save_document(self, doc_data: dict[str, Any]) -> dict[str, Any]:
         if "id" not in doc_data:
             doc_data["id"] = doc_data.get("document_id", str(uuid.uuid4()))
-        doc_data["saved_at"] = datetime.utcnow().isoformat()
+        doc_data["saved_at"] = datetime.now(timezone.utc).isoformat()
         return self._container("documents").upsert_item(doc_data)
 
     def get_document(self, document_id: str) -> Optional[dict[str, Any]]:
@@ -221,6 +231,9 @@ class CosmosDataStore:
         except (KeyError, Exception):
             return None
 
+    def count_documents(self) -> int:
+        return self._count_items("documents")
+
     # -- Correction logs ----------------------------------------------------
 
     def save_correction(self, correction_data: dict[str, Any]) -> dict[str, Any]:
@@ -228,7 +241,7 @@ class CosmosDataStore:
             correction_data["id"] = correction_data.get(
                 "correction_id", str(uuid.uuid4())
             )
-        correction_data["saved_at"] = datetime.utcnow().isoformat()
+        correction_data["saved_at"] = datetime.now(timezone.utc).isoformat()
         return self._container("corrections").upsert_item(correction_data)
 
     def get_corrections_for_type(
@@ -243,6 +256,28 @@ class CosmosDataStore:
                 partition_key=original_type,
             )
         )
+
+    def count_corrections(self) -> int:
+        return self._count_items("corrections")
+
+    def _count_items(self, name: str) -> int:
+        container = self._container(name)
+        if self._using_memory:
+            return container.item_count
+
+        try:
+            results = list(
+                container.query_items(
+                    query="SELECT VALUE COUNT(1) FROM c",
+                    enable_cross_partition_query=True,
+                )
+            )
+        except Exception:
+            return 0
+
+        if not results:
+            return 0
+        return int(results[0])
 
 
 # ---------------------------------------------------------------------------

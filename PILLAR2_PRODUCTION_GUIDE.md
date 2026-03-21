@@ -417,6 +417,26 @@ Mailbox to monitor:     ___________________________
 Azure Subscription ID:  ___________________________
 ```
 
+### Current Code Handoff Checklist
+
+The current backend is already prepared to use these settings once tenant access is available. Please collect or confirm all of them before the final live validation pass:
+
+- Graph app registration client ID
+- Graph client secret
+- Graph tenant ID
+- Mailbox address to monitor
+- SharePoint site ID
+- SharePoint drive ID
+- Azure OpenAI endpoint and deployment name
+- Confirmation that `azure-openai-key`, `cognitive-services-key`, `graph-client-id`, `graph-client-secret`, `graph-tenant-id`, `graph-mailbox-address`, `graph-sharepoint-site-id`, and `graph-sharepoint-drive-id` exist in Key Vault
+
+Mailbox polling settings now supported by the deployed code:
+
+- `MAILBOX_POLL_ENABLED` — `true` or `false`
+- `MAILBOX_POLL_SCHEDULE` — NCRONTAB schedule, default `0 */1 * * * *`
+- `MAILBOX_POLL_TOP` — max unread messages per poll, default `10`
+- `MAILBOX_MARK_PROCESSED` — mark processed emails as read/category-tagged, default `true`
+
 ---
 
 <a name="layer-1"></a>

@@ -15,13 +15,14 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import azure.functions as func
 
 from document_ai.classifier import classify_document, build_classification_prompt
 from document_ai.corrections import CorrectionStore
 from document_ai.models import DocumentType, StagedDocument
+from document_ai.repository import get_repository
 from document_ai.naming import recommend_filing
 from document_ai.serialization import (
     serialize_staged_document,
@@ -32,11 +33,7 @@ from document_ai.serialization import (
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 logger = logging.getLogger("document-ai")
-
-# ---------------------------------------------------------------------------
-# In-memory stores (replaced by Cosmos DB / SharePoint in production)
-# ---------------------------------------------------------------------------
-_document_store: dict[str, StagedDocument] = {}
+_repository = get_repository()
 _correction_store = CorrectionStore()
 
 
@@ -77,8 +74,11 @@ def classify_doc(req: func.HttpRequest) -> func.HttpResponse:
 
     # If document is tracked, update it
     doc_id = body.get("document_id")
-    if doc_id and doc_id in _document_store:
-        doc = _document_store[doc_id]
+    if doc_id:
+        doc = _repository.get_document(doc_id)
+    else:
+        doc = None
+    if doc:
         doc.classification = classification
         doc.status = "classified"
 
@@ -86,8 +86,9 @@ def classify_doc(req: func.HttpRequest) -> func.HttpResponse:
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "pdf"
     filing = recommend_filing(classification, filename, ext)
 
-    if doc_id and doc_id in _document_store:
-        _document_store[doc_id].filing = filing
+    if doc:
+        doc.filing = filing
+        _repository.save_document(doc)
 
     # If AI is needed, return the prompt for the caller to execute
     needs_ai = classification.confidence < 0.85 and not ai_response
@@ -146,7 +147,7 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
         content_hash=body.get("content_hash", ""),
     )
 
-    _document_store[doc.document_id] = doc
+    _repository.save_document(doc)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -183,7 +184,7 @@ def file_document(req: func.HttpRequest) -> func.HttpResponse:
     if not doc_id:
         return _error("'document_id' is required", 400)
 
-    doc = _document_store.get(doc_id)
+    doc = _repository.get_document(doc_id)
     if not doc:
         return _error(f"Document '{doc_id}' not found", 404)
 
@@ -197,6 +198,7 @@ def file_document(req: func.HttpRequest) -> func.HttpResponse:
         doc.filing.standardized_name = body["confirmed_name"]
 
     doc.status = "filed"
+    _repository.save_document(doc)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -237,7 +239,7 @@ def correct_classification(req: func.HttpRequest) -> func.HttpResponse:
     if not doc_id:
         return _error("'document_id' is required", 400)
 
-    doc = _document_store.get(doc_id)
+    doc = _repository.get_document(doc_id)
     if not doc:
         return _error(f"Document '{doc_id}' not found", 404)
 
@@ -257,12 +259,13 @@ def correct_classification(req: func.HttpRequest) -> func.HttpResponse:
         corrected_path=body.get("corrected_path", ""),
         notes=body.get("notes", ""),
     )
+    _repository.save_correction(correction)
 
     return func.HttpResponse(
         body=json.dumps({
             "success": True,
             "correction": serialize_correction(correction),
-            "total_corrections": _correction_store.total_corrections,
+            "total_corrections": _repository.count_corrections(),
         }),
         mimetype="application/json",
         status_code=200,
@@ -276,7 +279,7 @@ def correct_classification(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="documents/{document_id}", methods=["GET"])
 def get_document(req: func.HttpRequest) -> func.HttpResponse:
     doc_id = req.route_params.get("document_id")
-    doc = _document_store.get(doc_id)  # type: ignore[arg-type]
+    doc = _repository.get_document(doc_id)  # type: ignore[arg-type]
     if not doc:
         return _error(f"Document '{doc_id}' not found", 404)
 
@@ -301,9 +304,20 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "status": "healthy",
             "service": "document-ai",
             "version": "1.0.0",
-            "timestamp": datetime.utcnow().isoformat(),
-            "documents_staged": len(_document_store),
-            "corrections_logged": _correction_store.total_corrections,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "documents_staged": _repository.count_documents(),
+            "corrections_logged": _repository.count_corrections(),
+            "persistence": {
+                "backend": "sqlite",
+                "db_path": _repository.db_path,
+            },
+            "readiness": {
+                "durable_storage_ready": True,
+                "sharepoint_configured": bool(
+                    os.environ.get("GRAPH_SHAREPOINT_SITE_ID")
+                    and os.environ.get("GRAPH_SHAREPOINT_DRIVE_ID")
+                ),
+            },
         }),
         mimetype="application/json",
         status_code=200,

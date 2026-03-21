@@ -8,7 +8,7 @@ for improving future classifications — not model fine-tuning.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from .models import CorrectionLog, DocumentType
@@ -42,7 +42,7 @@ class CorrectionStore:
             original_path=original_path,
             corrected_path=corrected_path,
             corrected_by=corrected_by,
-            corrected_at=datetime.utcnow(),
+            corrected_at=datetime.now(timezone.utc),
             notes=notes,
         )
         self._corrections.append(entry)

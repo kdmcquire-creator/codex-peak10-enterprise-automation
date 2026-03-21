@@ -99,6 +99,27 @@ Run through this before starting Phase 1:
 
 Once all boxes are checked, proceed to Phase 1.
 
+### 0.7 — Credential Handoff Packet
+
+Collect these values as you work. When this packet is complete, I can finish the final tenant-wiring pass much faster:
+
+- Azure subscription ID
+- Azure tenant ID
+- Resource group name
+- Pillar 1, 2, 3, and 4 Function App URLs
+- Pillar 1, 2, 3, and 4 Function App host keys
+- Azure OpenAI endpoint and deployment name
+- Document Intelligence endpoint
+- SharePoint site URL, site ID, and drive ID
+- Outlook mailbox address to monitor
+- Confirmation that Graph admin consent has been granted
+- Plaid client ID and environment
+
+Key Vault secret names expected by the current code:
+
+- Pillar 2: `azure-openai-key`, `cosmos-connection-string`, `cognitive-services-key`, `graph-client-id`, `graph-client-secret`, `graph-tenant-id`, `graph-mailbox-address`, `graph-sharepoint-site-id`, `graph-sharepoint-drive-id`
+- Pillar 4: `sql-connection-string`, `plaid-client-id`, `plaid-secret`, `plaid-environment`
+
 ---
 
 ## Phase 1: Azure Foundation (30–45 minutes)

@@ -8,6 +8,8 @@ param location string = resourceGroup().location
 @allowed(['dev', 'staging', 'prod'])
 param environment string = 'dev'
 param baseName string = 'peak10email'
+@description('Azure OpenAI deployment name created inside the Azure OpenAI resource')
+param openAIDeploymentName string = 'gpt-4o-email'
 
 var suffix = '${baseName}${environment}'
 var functionAppName = 'func-${suffix}'
@@ -183,8 +185,22 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'KEY_VAULT_URI', value: keyVault.properties.vaultUri }
         { name: 'AZURE_OPENAI_ENDPOINT', value: openAI.properties.endpoint }
+        { name: 'AZURE_OPENAI_API_KEY', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=azure-openai-key)' }
+        { name: 'AZURE_OPENAI_DEPLOYMENT', value: openAIDeploymentName }
+        { name: 'AZURE_OPENAI_API_VERSION', value: '2024-06-01' }
         { name: 'COSMOS_CONNECTION_STRING', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=cosmos-connection-string)' }
         { name: 'AZURE_DI_ENDPOINT', value: docIntelligence.properties.endpoint }
+        { name: 'AZURE_DI_KEY', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=cognitive-services-key)' }
+        { name: 'GRAPH_CLIENT_ID', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-client-id)' }
+        { name: 'GRAPH_CLIENT_SECRET', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-client-secret)' }
+        { name: 'GRAPH_TENANT_ID', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-tenant-id)' }
+        { name: 'GRAPH_MAILBOX_ADDRESS', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-mailbox-address)' }
+        { name: 'GRAPH_SHAREPOINT_SITE_ID', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-sharepoint-site-id)' }
+        { name: 'GRAPH_SHAREPOINT_DRIVE_ID', value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=graph-sharepoint-drive-id)' }
+        { name: 'MAILBOX_POLL_ENABLED', value: 'false' }
+        { name: 'MAILBOX_POLL_SCHEDULE', value: '0 */1 * * * *' }
+        { name: 'MAILBOX_POLL_TOP', value: '10' }
+        { name: 'MAILBOX_MARK_PROCESSED', value: 'true' }
         { name: 'ENVIRONMENT', value: environment }
       ]
     }

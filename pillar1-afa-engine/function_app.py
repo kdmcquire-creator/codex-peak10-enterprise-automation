@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import azure.functions as func
@@ -26,6 +27,7 @@ from afa_engine.models import (
     Vendor,
     currency,
 )
+from afa_engine.repository import get_repository
 from afa_engine.serialization import (
     deserialize_budget,
     deserialize_invoice,
@@ -38,10 +40,7 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 logger = logging.getLogger("afa-engine")
 
 
-# ---------------------------------------------------------------------------
-# In-memory store (replaced by Azure SQL / Cosmos in production)
-# ---------------------------------------------------------------------------
-_allocation_store: dict[str, AllocationResult] = {}
+_repository = get_repository()
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +78,7 @@ def run_allocation(req: func.HttpRequest) -> func.HttpResponse:
     engine = AllocationEngine(budget=budget, invoices=invoices)
     result = engine.run()
 
-    _allocation_store[result.run_id] = result
+    _repository.save(result)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -111,7 +110,7 @@ def approve_allocation(req: func.HttpRequest) -> func.HttpResponse:
     if not run_id:
         return _error("'run_id' is required", 400)
 
-    result = _allocation_store.get(run_id)
+    result = _repository.get(run_id)
     if not result:
         return _error(f"Allocation run '{run_id}' not found", 404)
 
@@ -121,6 +120,7 @@ def approve_allocation(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     result.status = AllocationRunStatus.APPROVED
+    _repository.save(result)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -153,7 +153,7 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
     if not run_id:
         return _error("'run_id' is required", 400)
 
-    result = _allocation_store.get(run_id)
+    result = _repository.get(run_id)
     if not result:
         return _error(f"Allocation run '{run_id}' not found", 404)
 
@@ -177,6 +177,7 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
 
     result.status = AllocationRunStatus.EXPORTED
     nacha_text = render_nacha_flat(ach_records)
+    _repository.save(result)
 
     return func.HttpResponse(
         body=json.dumps({
@@ -201,7 +202,17 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "status": "healthy",
             "service": "afa-engine",
             "version": "1.0.0",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "persistence": {
+                "backend": "sqlite",
+                "db_path": _repository.db_path,
+                "allocation_runs_stored": _repository.count_runs(),
+            },
+            "readiness": {
+                "durable_storage_ready": True,
+                "approval_workflow_ready": False,
+                "cross_pillar_filing_ready": bool(os.environ.get("PILLAR3_BASE_URL")),
+            },
         }),
         mimetype="application/json",
         status_code=200,

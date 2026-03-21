@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Optional
@@ -50,6 +50,10 @@ class AllocationRunStatus(str, Enum):
 def currency(value: Decimal | float | str) -> Decimal:
     """Normalize a value to 2-decimal-place currency."""
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +131,7 @@ class AllocationResult:
     line_items: list[AllocationLineItem] = field(default_factory=list)
     deferred_items: list[AllocationLineItem] = field(default_factory=list)
     pass_summaries: list[dict] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
 
     @property
     def utilization_pct(self) -> Decimal:

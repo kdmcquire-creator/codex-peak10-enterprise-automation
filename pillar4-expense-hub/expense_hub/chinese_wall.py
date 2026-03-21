@@ -14,7 +14,7 @@ This module enforces:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -39,7 +39,7 @@ class AuditEntry:
     def __init__(self, claim_id: str, action: str, timestamp: datetime | None = None):
         self.claim_id = claim_id
         self.action = action
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
 
     def __repr__(self) -> str:
         return f"AuditEntry({self.action}, claim={self.claim_id}, at={self.timestamp.isoformat()})"

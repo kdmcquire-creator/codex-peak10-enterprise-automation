@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Optional
@@ -17,6 +17,10 @@ from typing import Optional
 
 def currency(value: Decimal | float | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +95,7 @@ class ExpenseClaim:
     receipt_ref: str = ""       # SharePoint document ID from Pillar 3
     bucket: ExpenseBucket = ExpenseBucket.PEAK10
     status: ClaimStatus = ClaimStatus.DRAFT
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
 
     # Tracking: which transactions sourced this (stays inside the wall)
     _source_transaction_ids: list[str] = field(default_factory=list, repr=False)

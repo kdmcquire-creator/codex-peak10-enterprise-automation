@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from typing import Any
 
 from .models import (
     BankTransaction,
+    ClaimStatus,
     ExpenseBucket,
     ExpenseClaim,
     Pillar1InvoicePayload,
+    TransactionStatus,
+    currency,
 )
 
 
@@ -54,3 +58,40 @@ def serialize_pillar1_payload(p: Pillar1InvoicePayload) -> dict[str, Any]:
         "receipt_ref": p.receipt_ref,
         "source": p.source,
     }
+
+
+def deserialize_transaction(data: dict[str, Any]) -> BankTransaction:
+    return BankTransaction(
+        transaction_id=data.get("transaction_id", ""),
+        plaid_transaction_id=data.get("plaid_transaction_id", ""),
+        account_id=data.get("account_id", ""),
+        date=date.fromisoformat(data["date"]),
+        merchant_name=data.get("merchant_name", ""),
+        amount=currency(data.get("amount", "0.00")),
+        category=data.get("category", []),
+        pending=bool(data.get("pending", False)),
+        bucket=ExpenseBucket(data.get("bucket", ExpenseBucket.UNKNOWN.value)),
+        classification_rule=data.get("classification_rule", ""),
+        classification_confidence=float(data.get("classification_confidence", 0.0)),
+        status=TransactionStatus(data.get("status", TransactionStatus.PENDING.value)),
+        receipt_ref=data.get("receipt_ref"),
+    )
+
+
+def deserialize_expense_claim(data: dict[str, Any]) -> ExpenseClaim:
+    claim = ExpenseClaim(
+        claim_id=data.get("claim_id", ""),
+        employee_name=data.get("employee_name", ""),
+        vendor_name=data.get("vendor_name", ""),
+        expense_date=date.fromisoformat(data["expense_date"]),
+        amount=currency(data.get("amount", "0.00")),
+        description=data.get("description", ""),
+        receipt_ref=data.get("receipt_ref", ""),
+        bucket=ExpenseBucket(data.get("bucket", ExpenseBucket.PEAK10.value)),
+        status=ClaimStatus(data.get("status", ClaimStatus.DRAFT.value)),
+        created_at=datetime.fromisoformat(data["created_at"])
+        if data.get("created_at")
+        else datetime.now(timezone.utc),
+    )
+    claim._source_transaction_ids = data.get("_source_transaction_ids", [])
+    return claim

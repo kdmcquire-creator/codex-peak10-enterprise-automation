@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -165,6 +165,10 @@ class ClassificationConfidence(str, Enum):
     LOW = "low"
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass
 class ExtractedMetadata:
     vendor_name: Optional[str] = None
@@ -206,7 +210,7 @@ class StagedDocument:
     file_extension: str = ""
     source: str = "upload"
     source_detail: str = ""
-    staged_at: datetime = field(default_factory=datetime.utcnow)
+    staged_at: datetime = field(default_factory=utc_now)
     file_size_bytes: int = 0
     content_hash: str = ""
     status: str = "pending"
@@ -223,5 +227,5 @@ class CorrectionLog:
     original_path: str = ""
     corrected_path: str = ""
     corrected_by: str = ""
-    corrected_at: datetime = field(default_factory=datetime.utcnow)
+    corrected_at: datetime = field(default_factory=utc_now)
     notes: str = ""

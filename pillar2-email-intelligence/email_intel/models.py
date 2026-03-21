@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -67,6 +67,10 @@ class ActionType(str, Enum):
     DELETE = "delete"
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Domain models
 # ---------------------------------------------------------------------------
@@ -81,7 +85,7 @@ class EmailMessage:
     recipients: list[str] = field(default_factory=list)
     body_preview: str = ""       # First ~2000 chars
     body_text: str = ""          # Full plain-text body
-    received_at: datetime = field(default_factory=datetime.utcnow)
+    received_at: datetime = field(default_factory=utc_now)
     has_attachments: bool = False
     attachment_names: list[str] = field(default_factory=list)
     conversation_id: str = ""
