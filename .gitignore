@@ -14,5 +14,6 @@ local.settings.json
 .deploy/
 .basetemp/
 .pytest-tmp/
+.test-temp/
 pytest-cache-files-*/
 *.db
