@@ -144,6 +144,9 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
         return _error("'filename' is required", 400)
 
     ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+    provided_document_id = body.get("document_id")
+    if not isinstance(provided_document_id, str):
+        provided_document_id = ""
 
     doc = StagedDocument(
         original_filename=filename,
@@ -155,6 +158,8 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
         content_hash=body.get("content_hash", ""),
         content_type=body.get("content_type", ""),
     )
+    if provided_document_id:
+        doc.document_id = provided_document_id
 
     if isinstance(body.get("message_id"), str) and body.get("message_id"):
         doc.source_metadata.setdefault("message_id", body["message_id"])
