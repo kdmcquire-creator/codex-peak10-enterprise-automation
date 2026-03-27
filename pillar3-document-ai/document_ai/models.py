@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -217,12 +217,21 @@ class StagedDocument:
     file_extension: str = ""
     source: str = "upload"  # "upload" | "email" | "pillar1" | "pillar4"
     source_detail: str = ""  # e.g., email subject, run_id
+    source_metadata: dict[str, Any] = field(default_factory=dict)
     staged_at: datetime = field(default_factory=utc_now)
     file_size_bytes: int = 0
     content_hash: str = ""
+    content_type: str = ""
+    binary_available: bool = False
+    storage_backend: str = "metadata_only"
+    storage_reference: str = ""
     status: str = "pending"  # "pending" | "classified" | "filed" | "error"
     classification: Optional[ClassificationResult] = None
     filing: Optional[FilingRecommendation] = None
+    extraction: dict[str, Any] = field(default_factory=dict)
+    filed_at: Optional[str] = None
+    filing_backend: str = ""
+    filing_reference: str = ""
 
 
 @dataclass

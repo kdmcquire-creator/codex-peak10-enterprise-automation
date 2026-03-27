@@ -5,6 +5,7 @@ description = "Peak 10 Energy — Universal Data Governance & Document AI"
 requires-python = ">=3.10"
 dependencies = [
     "azure-functions>=1.17.0",
+    "azure-storage-blob>=12.24.0",
 ]
 
 [project.optional-dependencies]

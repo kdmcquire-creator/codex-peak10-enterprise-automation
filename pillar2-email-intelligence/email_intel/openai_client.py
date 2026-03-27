@@ -283,6 +283,19 @@ Respond in JSON:
             operation="draft_reply",
         )
 
+    def assist_calendar_request(self, prompt: str) -> Optional[dict[str, Any]]:
+        """Generate structured meeting-assistant guidance for a calendar-related email."""
+        system = (
+            "You are an executive scheduling assistant for Peak 10 Energy. "
+            "Extract scheduling intent conservatively and respond with valid JSON only."
+        )
+        return self._call_completion(
+            system_prompt=system,
+            user_prompt=prompt,
+            max_tokens=MAX_TOKENS_TRIAGE,
+            operation="calendar_assist",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Module-level singleton

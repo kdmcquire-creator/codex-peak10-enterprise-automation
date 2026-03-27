@@ -62,7 +62,7 @@ SUBJECT_RULES: list[tuple[str, EmailCategory, UrgencyTier, float]] = [
     (r"(?i)(spill|blowout|h2s|emergency|shut.?in)", EmailCategory.OPERATIONS, UrgencyTier.CRITICAL, 0.92),
     (r"(?i)(production report|run ticket|afe)", EmailCategory.OPERATIONS, UrgencyTier.STANDARD, 0.85),
     # Calendar
-    (r"(?i)(meeting|calendar|invite|rsvp|schedule)", EmailCategory.CALENDAR, UrgencyTier.STANDARD, 0.80),
+    (r"(?i)(meeting|meet\b|calendar|invite|rsvp|schedule|call\b|zoom|teams)", EmailCategory.CALENDAR, UrgencyTier.STANDARD, 0.80),
     # Receipts
     (r"(?i)(receipt|confirmation|booking|itinerary)", EmailCategory.RECEIPT, UrgencyTier.LOW, 0.85),
     (r"(?i)(uber|lyft|american airlines|delta|united|marriott|hilton)", EmailCategory.RECEIPT, UrgencyTier.LOW, 0.88),

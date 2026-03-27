@@ -31,6 +31,11 @@ class TestOpenAIClientOffline:
         result = client.generate_draft_reply("Re: Test", "Hello", "John")
         assert result is None
 
+    def test_calendar_assist_returns_none_when_unavailable(self):
+        client = AzureOpenAIClient(config=OpenAIClientConfig())
+        result = client.assist_calendar_request("calendar prompt")
+        assert result is None
+
     def test_usage_log_empty_when_unavailable(self):
         client = AzureOpenAIClient(config=OpenAIClientConfig())
         client.triage_email("test")

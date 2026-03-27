@@ -12,6 +12,9 @@ Endpoints:
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 import logging
 import os
@@ -29,7 +32,11 @@ from document_ai.serialization import (
     serialize_classification,
     serialize_filing,
     serialize_correction,
+    deserialize_classification,
+    deserialize_filing,
 )
+from document_ai.blob_storage import get_blob_staging_client
+from document_ai.sharepoint_client import get_sharepoint_client
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 logger = logging.getLogger("document-ai")
@@ -143,9 +150,57 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
         file_extension=ext,
         source=body.get("source", "upload"),
         source_detail=body.get("source_detail", ""),
+        source_metadata=_normalize_object_dict(body.get("source_metadata", {})),
         file_size_bytes=body.get("file_size_bytes", 0),
         content_hash=body.get("content_hash", ""),
+        content_type=body.get("content_type", ""),
     )
+
+    if isinstance(body.get("message_id"), str) and body.get("message_id"):
+        doc.source_metadata.setdefault("message_id", body["message_id"])
+    if isinstance(body.get("attachment_id"), str) and body.get("attachment_id"):
+        doc.source_metadata.setdefault("attachment_id", body["attachment_id"])
+    if isinstance(body.get("thread_key"), str) and body.get("thread_key"):
+        doc.source_metadata.setdefault("thread_key", body["thread_key"])
+    if isinstance(body.get("sender"), str) and body.get("sender"):
+        doc.source_metadata.setdefault("sender", body["sender"])
+
+    if isinstance(body.get("classification"), dict):
+        doc.classification = deserialize_classification(body["classification"])
+        doc.status = "classified"
+    if isinstance(body.get("filing"), dict):
+        doc.filing = deserialize_filing(body["filing"])
+        if doc.classification is not None:
+            doc.status = "classified"
+    extraction = _normalize_object_dict(body.get("extraction", {}))
+    if extraction:
+        doc.extraction = extraction
+
+    file_bytes_base64 = body.get("file_bytes_base64", "")
+    if file_bytes_base64:
+        try:
+            file_bytes = _decode_file_bytes(file_bytes_base64)
+        except ValueError as exc:
+            return _error(str(exc), 400)
+        storage_backend, storage_reference = _persist_document_bytes(
+            doc.document_id,
+            file_bytes,
+            content_type=doc.content_type,
+        )
+        doc.binary_available = True
+        doc.storage_backend = storage_backend
+        doc.storage_reference = storage_reference
+        doc.file_size_bytes = len(file_bytes)
+        if not doc.content_hash:
+            doc.content_hash = f"sha256:{hashlib.sha256(file_bytes).hexdigest()}"
+        if not doc.content_type:
+            doc.content_type = "application/octet-stream"
+
+    if doc.classification is not None and doc.filing is None:
+        ext_for_filing = doc.file_extension or "bin"
+        doc.filing = recommend_filing(doc.classification, filename, ext_for_filing)
+    if doc.classification is not None:
+        doc.status = "classified"
 
     _repository.save_document(doc)
 
@@ -197,7 +252,51 @@ def file_document(req: func.HttpRequest) -> func.HttpResponse:
     if body.get("confirmed_name"):
         doc.filing.standardized_name = body["confirmed_name"]
 
-    doc.status = "filed"
+    upload = {
+        "attempted": False,
+        "uploaded": False,
+        "backend": "metadata_only",
+        "reason": "",
+        "item_id": "",
+        "web_url": "",
+    }
+    sharepoint = get_sharepoint_client()
+    file_bytes = _load_document_bytes(doc)
+    upload_required = bool(file_bytes)
+    upload_succeeded = False
+    if file_bytes:
+        if sharepoint.is_available:
+            try:
+                upload["attempted"] = True
+                upload["backend"] = "sharepoint"
+                response = sharepoint.upload_file(
+                    doc.filing.standardized_name,
+                    file_bytes,
+                    folder_path=doc.filing.recommended_path,
+                )
+                upload["uploaded"] = bool(response)
+                upload_succeeded = bool(response)
+                upload["reason"] = "" if response else "sharepoint_empty_response"
+                upload["item_id"] = str(response.get("id", "")) if response else ""
+                upload["web_url"] = str(response.get("webUrl", "")) if response else ""
+                doc.filing_backend = "sharepoint"
+                doc.filing_reference = str(response.get("webUrl", "")) if response else ""
+            except Exception as exc:
+                logger.warning("SharePoint upload failed for %s: %s", doc_id, exc)
+                upload["attempted"] = True
+                upload["backend"] = "sharepoint"
+                upload["reason"] = f"sharepoint_upload_failed: {exc}"
+        else:
+            upload["reason"] = "sharepoint_not_configured"
+    else:
+        upload["reason"] = "document_bytes_unavailable"
+
+    if upload_required and not upload_succeeded:
+        doc.status = "classified"
+        doc.filed_at = None
+    else:
+        doc.status = "filed"
+        doc.filed_at = datetime.now(timezone.utc).isoformat()
     _repository.save_document(doc)
 
     return func.HttpResponse(
@@ -206,7 +305,8 @@ def file_document(req: func.HttpRequest) -> func.HttpResponse:
             "document_id": doc_id,
             "filed_to": doc.filing.recommended_path,
             "filed_as": doc.filing.standardized_name,
-            "status": "filed",
+            "status": doc.status,
+            "upload": upload,
         }),
         mimetype="application/json",
         status_code=200,
@@ -299,6 +399,8 @@ def get_document(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="health", methods=["GET"])
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    blob_staging = get_blob_staging_client()
+    sharepoint = get_sharepoint_client()
     return func.HttpResponse(
         body=json.dumps({
             "status": "healthy",
@@ -310,13 +412,17 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "persistence": {
                 "backend": "sqlite",
                 "db_path": _repository.db_path,
+                "staging_dir": str(getattr(_repository, "staging_dir", "")),
+                "blob_staging_available": blob_staging.is_available,
             },
             "readiness": {
                 "durable_storage_ready": True,
+                "blob_staging_ready": blob_staging.is_available,
                 "sharepoint_configured": bool(
                     os.environ.get("GRAPH_SHAREPOINT_SITE_ID")
                     and os.environ.get("GRAPH_SHAREPOINT_DRIVE_ID")
                 ),
+                "sharepoint_filing_ready": sharepoint.is_available,
             },
         }),
         mimetype="application/json",
@@ -334,3 +440,47 @@ def _error(message: str, status_code: int) -> func.HttpResponse:
         mimetype="application/json",
         status_code=status_code,
     )
+
+
+def _decode_file_bytes(file_bytes_base64: str) -> bytes:
+    try:
+        return base64.b64decode(file_bytes_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Invalid 'file_bytes_base64' payload") from exc
+
+
+def _normalize_object_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
+def _persist_document_bytes(
+    document_id: str,
+    file_bytes: bytes,
+    *,
+    content_type: str = "",
+) -> tuple[str, str]:
+    blob_staging = get_blob_staging_client()
+    if blob_staging.is_available:
+        reference = blob_staging.upload_bytes(
+            document_id,
+            file_bytes,
+            content_type=content_type,
+        )
+        if reference:
+            return "azure_blob", reference
+
+    reference = _repository.save_document_bytes(document_id, file_bytes)
+    return "local_fs", reference
+
+
+def _load_document_bytes(doc: StagedDocument) -> bytes | None:
+    if doc.storage_backend == "azure_blob":
+        blob_staging = get_blob_staging_client()
+        if blob_staging.is_available:
+            return blob_staging.download_bytes(doc.document_id)
+
+    if getattr(_repository, "has_document_bytes", None) and _repository.has_document_bytes(doc.document_id):
+        return _repository.get_document_bytes(doc.document_id)
+    return None

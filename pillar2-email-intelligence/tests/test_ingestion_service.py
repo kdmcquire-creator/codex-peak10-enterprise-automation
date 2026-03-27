@@ -60,6 +60,29 @@ class FakeDocClient:
     is_available = False
 
 
+class FailingGraphClient(FakeGraphClient):
+    def mark_message_processed(self, message_id: str, *, category: str = "Peak10Processed"):
+        raise RuntimeError("graph write failed")
+
+
+class ExplodingAttachmentGraphClient(FakeGraphClient):
+    def get_message_attachments(self, message_id: str):
+        raise RuntimeError("attachments endpoint failed")
+
+
+class InvalidAttachmentPayloadGraphClient(FakeGraphClient):
+    def get_message_attachments(self, message_id: str):
+        return [
+            {
+                "id": "att-1",
+                "name": "Invoice_123.pdf",
+                "contentType": "application/pdf",
+                "contentBytes": "%%%not-base64%%%",
+                "isInline": False,
+            }
+        ]
+
+
 def test_fetch_unread_messages_builds_local_models():
     service = MailboxIngestionService(graph_client=FakeGraphClient())
 
@@ -89,3 +112,37 @@ def test_process_unread_messages_processes_attachments_and_marks_messages():
     assert results[0].attachments[0].upload_result["attempted"] is False
     assert results[0].marked_processed is True
     assert graph_client.marked_messages == ["msg-1"]
+
+
+def test_process_unread_messages_records_mark_processed_warning():
+    service = MailboxIngestionService(graph_client=FailingGraphClient())
+
+    results = service.process_unread_messages(
+        mark_processed=True,
+        openai_client=FakeOpenAIClient(),
+        doc_intelligence_client=FakeDocClient(),
+    )
+
+    assert len(results) == 1
+    assert results[0].marked_processed is False
+    assert any("mark_processed_failed" in warning for warning in results[0].warnings)
+
+
+def test_fetch_unread_messages_records_attachment_fetch_warning():
+    service = MailboxIngestionService(graph_client=ExplodingAttachmentGraphClient())
+
+    results = service.fetch_unread_messages()
+
+    assert len(results) == 1
+    assert results[0].attachments == []
+    assert any("attachment_fetch_failed" in warning for warning in results[0].warnings)
+
+
+def test_fetch_unread_messages_skips_invalid_attachment_payloads():
+    service = MailboxIngestionService(graph_client=InvalidAttachmentPayloadGraphClient())
+
+    results = service.fetch_unread_messages()
+
+    assert len(results) == 1
+    assert results[0].attachments == []
+    assert any("attachment_parse_failed" in warning for warning in results[0].warnings)

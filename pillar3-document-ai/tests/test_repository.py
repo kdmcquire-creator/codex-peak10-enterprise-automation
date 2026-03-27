@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+import uuid
+
 from document_ai.models import (
     ClassificationConfidence,
     ClassificationResult,
@@ -13,8 +17,15 @@ from document_ai.models import (
 from document_ai.repository import DocumentRepository
 
 
-def test_save_and_get_document(tmp_path):
-    repo = DocumentRepository(db_path=str(tmp_path / "document-ai.db"))
+def _make_test_dir() -> Path:
+    path = Path.cwd() / ".test-temp" / f"repo-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def test_save_and_get_document():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
     doc = StagedDocument(
         document_id="doc-123",
         original_filename="Invoice_123.pdf",
@@ -45,10 +56,12 @@ def test_save_and_get_document(tmp_path):
     assert loaded.classification.document_type == DocumentType.INVOICE
     assert loaded.filing is not None
     assert loaded.filing.recommended_path == "01_CORPORATE/Finance/AP"
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_save_correction_and_count(tmp_path):
-    repo = DocumentRepository(db_path=str(tmp_path / "document-ai.db"))
+def test_save_correction_and_count():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
     correction = CorrectionLog(
         correction_id="corr-123",
         document_id="doc-123",
@@ -60,3 +73,17 @@ def test_save_correction_and_count(tmp_path):
 
     repo.save_correction(correction)
     assert repo.count_corrections() == 1
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_save_and_get_document_bytes(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    reference = repo.save_document_bytes("doc-123", b"hello world")
+
+    assert reference
+    assert repo.has_document_bytes("doc-123") is True
+    assert repo.get_document_bytes("doc-123") == b"hello world"
+    shutil.rmtree(temp_dir, ignore_errors=True)

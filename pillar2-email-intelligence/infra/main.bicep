@@ -10,6 +10,12 @@ param environment string = 'dev'
 param baseName string = 'peak10email'
 @description('Azure OpenAI deployment name created inside the Azure OpenAI resource')
 param openAIDeploymentName string = 'gpt-4o-email'
+@description('App Service plan SKU to use for the Function App')
+@allowed([
+  'Y1'
+  'B1'
+])
+param appServicePlanSkuName string = 'B1'
 
 var suffix = '${baseName}${environment}'
 var functionAppName = 'func-${suffix}'
@@ -20,6 +26,7 @@ var keyVaultName = 'kv-${suffix}'
 var openAIName = 'oai-${suffix}'
 var cosmosName = 'cosmos-${suffix}'
 var docIntelName = 'di-${suffix}'
+var appServicePlanSkuTier = appServicePlanSkuName == 'Y1' ? 'Dynamic' : 'Basic'
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: storageName
@@ -44,8 +51,8 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: appServicePlanName
   location: location
   sku: {
-    name: environment == 'prod' ? 'B1' : 'Y1'
-    tier: environment == 'prod' ? 'Basic' : 'Dynamic'
+    name: appServicePlanSkuName
+    tier: appServicePlanSkuTier
   }
   properties: { reserved: true }
 }

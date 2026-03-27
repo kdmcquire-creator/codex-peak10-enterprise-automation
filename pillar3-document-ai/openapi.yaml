@@ -140,10 +140,26 @@ components:
         source_detail:
           type: string
           description: E.g., email subject line or Pillar 1 run_id
+        source_metadata:
+          type: object
+          description: Optional upstream linkage metadata such as message_id, attachment_id, sender, or thread keys
         file_size_bytes:
           type: integer
         content_hash:
           type: string
+        content_type:
+          type: string
+          description: MIME type for uploaded bytes
+        file_bytes_base64:
+          type: string
+          description: Optional base64-encoded document payload to stage for later filing
+        classification:
+          $ref: "#/components/schemas/ClassificationResult"
+        filing:
+          $ref: "#/components/schemas/FilingRecommendation"
+        extraction:
+          type: object
+          description: Optional upstream extraction summary/details from another pillar
 
     StageResponse:
       type: object
@@ -212,12 +228,35 @@ components:
           type: string
         source_detail:
           type: string
+        source_metadata:
+          type: object
         staged_at:
           type: string
           format: date-time
+        file_size_bytes:
+          type: integer
+        content_hash:
+          type: string
+        content_type:
+          type: string
+        binary_available:
+          type: boolean
+        storage_backend:
+          type: string
+        storage_reference:
+          type: string
         status:
           type: string
           enum: [pending, classified, filed, error]
+        extraction:
+          type: object
+        filed_at:
+          type: string
+          format: date-time
+        filing_backend:
+          type: string
+        filing_reference:
+          type: string
         classification:
           $ref: "#/components/schemas/ClassificationResult"
         filing:

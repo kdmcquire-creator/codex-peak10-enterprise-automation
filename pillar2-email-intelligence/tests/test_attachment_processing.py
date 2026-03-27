@@ -25,6 +25,13 @@ class FakeGraphClient:
         }
 
 
+class FailingGraphClient:
+    sharepoint_available = True
+
+    def upload_file(self, filename: str, file_bytes: bytes, *, folder_path: str = ""):
+        raise RuntimeError("sharepoint unavailable")
+
+
 class FakeOpenAIClient:
     is_available = False
 
@@ -94,3 +101,25 @@ def test_process_attachment_uploads_when_sharepoint_is_available():
     assert processed.sharepoint_target["folder_path"] == "01_CORPORATE/Finance/AP"
     assert processed.upload_result["attempted"] is True
     assert processed.upload_result["uploaded"] is True
+
+
+def test_process_attachment_records_upload_failure_without_raising():
+    attachment = MailAttachment(
+        attachment_id="att-1",
+        name="Invoice_123.pdf",
+        content_type="application/pdf",
+        content_bytes=b"invoice-bytes",
+    )
+
+    processed = process_attachment(
+        attachment,
+        graph_client=FailingGraphClient(),
+        openai_client=FakeOpenAIClient(),
+        doc_intelligence_client=FakeDocClient(),
+    )
+
+    assert processed.classification.document_type == DocumentType.INVOICE
+    assert processed.upload_result["attempted"] is True
+    assert processed.upload_result["uploaded"] is False
+    assert processed.upload_result["reason"] == "sharepoint_upload_failed"
+    assert "sharepoint unavailable" in str(processed.upload_result["error"])

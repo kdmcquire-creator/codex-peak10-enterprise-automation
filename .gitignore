@@ -10,6 +10,8 @@ local.settings.json
 .venv/
 .venv-codex/
 .tools/
+.azure-codex/
+.deploy/
 .basetemp/
 .pytest-tmp/
 pytest-cache-files-*/

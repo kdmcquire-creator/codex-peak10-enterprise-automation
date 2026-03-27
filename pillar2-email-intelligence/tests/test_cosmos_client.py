@@ -67,6 +67,14 @@ class TestDraftResponses:
         drafts = store.get_drafts_for_message("msg-1")
         assert len(drafts) >= 2
 
+    def test_find_draft_by_id(self, store):
+        store.save_draft({"draft_id": "d-find", "message_id": "msg-9", "body": "v1"})
+
+        draft = store.find_draft_by_id("d-find")
+
+        assert draft is not None
+        assert draft["message_id"] == "msg-9"
+
     def test_delete_draft(self, store):
         store.save_draft({"draft_id": "d-del", "message_id": "msg-1", "body": "bye"})
         store.delete_draft("d-del", "msg-1")

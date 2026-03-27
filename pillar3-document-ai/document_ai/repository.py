@@ -32,12 +32,23 @@ def _default_db_path() -> str:
     return str(data_dir / DEFAULT_DB_NAME)
 
 
+def _default_staging_dir() -> Path:
+    configured = os.environ.get("DOCUMENT_AI_STAGING_DIR")
+    if configured:
+        path = Path(configured)
+    else:
+        path = Path(os.getcwd()) / ".data" / "staged-files"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 class DocumentRepository:
     """SQLite-backed storage for staged documents and correction logs."""
 
     def __init__(self, db_path: Optional[str] = None) -> None:
         self.db_path = db_path or _default_db_path()
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.staging_dir = _default_staging_dir()
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
@@ -111,6 +122,22 @@ class DocumentRepository:
                 ),
             )
         return correction
+
+    def save_document_bytes(self, document_id: str, file_bytes: bytes) -> str:
+        path = self.staging_dir / document_id
+        with self._lock:
+            path.write_bytes(file_bytes)
+        return str(path)
+
+    def get_document_bytes(self, document_id: str) -> Optional[bytes]:
+        path = self.staging_dir / document_id
+        if not path.exists():
+            return None
+        with self._lock:
+            return path.read_bytes()
+
+    def has_document_bytes(self, document_id: str) -> bool:
+        return (self.staging_dir / document_id).exists()
 
     def count_documents(self) -> int:
         with self._lock:

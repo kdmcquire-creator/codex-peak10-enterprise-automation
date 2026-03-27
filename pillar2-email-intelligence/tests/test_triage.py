@@ -113,6 +113,12 @@ class TestSubjectRules:
         assert result is not None
         assert result.category == EmailCategory.RECEIPT
 
+    def test_calendar_meeting_language(self):
+        email = make_email(subject="Can we meet next Tuesday at 2 pm?")
+        result = triage_by_rules(email)
+        assert result is not None
+        assert result.category == EmailCategory.CALENDAR
+
     def test_unknown_subject(self):
         email = make_email(subject="Hello there", sender="friend@gmail.com")
         result = triage_by_rules(email)

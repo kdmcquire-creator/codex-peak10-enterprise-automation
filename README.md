@@ -19,5 +19,7 @@ Current reality: the repo contains strong backend prototypes and deployment scaf
 Notable current runtime surfaces:
 
 - `pillar2-email-intelligence` now includes `POST /api/mailbox/ingest` to fetch unread Graph messages, triage them, classify attachments, and resolve governed SharePoint targets with safe staging behavior when confidence is low.
+- Mailbox ingestion and polling now preserve per-message warnings for attachment fetch/parse and mark-processed failures so one bad item is less likely to abort a whole batch.
 - `pillar2-email-intelligence` also includes timer-driven mailbox polling configuration, disabled by default until Graph/SharePoint tenant settings are ready.
+- The mailbox ingest surface now returns summary counts for processed messages, warnings, attachments, and upload outcomes to make operations easier to read quickly.
 - Each pillar exposes `GET /api/health`, and the health payloads now include readiness-oriented dependency and persistence details to narrow the remaining tenant handoff.

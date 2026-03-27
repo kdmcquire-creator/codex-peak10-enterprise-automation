@@ -26,6 +26,7 @@ Recent autonomous progress:
 - Pillar 2 now exposes a first mailbox ingestion pipeline that triages unread Graph messages, classifies attachments, and resolves SharePoint/staging targets
 - Pillar 2 now includes timer-driven mailbox polling configuration around the ingestion pipeline, disabled by default until tenant setup is complete
 - Pillar 2 attachment filing now stages low-confidence documents into `00_STAGING/Inbox` and unsupported files into `00_STAGING/Errors`
+- Pillar 2 mailbox polling now degrades attachment fetch/parse and mark-processed failures into per-message warnings instead of aborting a full polling run
 - Health/readiness payloads are broader across all four pillars to make remaining credential handoff more explicit
 
 ## Pillar Status
@@ -63,6 +64,7 @@ What is in place:
 - Mailbox ingestion endpoint and Graph-backed unread message parsing
 - Timer-trigger mailbox polling path with environment-based enable/schedule controls
 - SharePoint upload target resolution with governed filing vs. staging behavior
+- Non-fatal warning capture for mailbox ingestion edge cases plus operational summary counts for processed messages, attachments, uploads, and warnings
 - Expanded health/readiness reporting for storage and downstream dependencies
 - Azure infrastructure template
 - CI workflow and unit tests

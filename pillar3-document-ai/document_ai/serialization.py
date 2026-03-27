@@ -60,9 +60,19 @@ def serialize_staged_document(d: StagedDocument) -> dict[str, Any]:
         "file_extension": d.file_extension,
         "source": d.source,
         "source_detail": d.source_detail,
+        "source_metadata": d.source_metadata,
         "staged_at": d.staged_at.isoformat(),
         "file_size_bytes": d.file_size_bytes,
+        "content_hash": d.content_hash,
+        "content_type": d.content_type,
+        "binary_available": d.binary_available,
+        "storage_backend": d.storage_backend,
+        "storage_reference": d.storage_reference,
         "status": d.status,
+        "extraction": d.extraction,
+        "filed_at": d.filed_at,
+        "filing_backend": d.filing_backend,
+        "filing_reference": d.filing_reference,
     }
     if d.classification:
         result["classification"] = serialize_classification(d.classification)
@@ -133,12 +143,21 @@ def deserialize_staged_document(data: dict[str, Any]) -> StagedDocument:
         file_extension=data.get("file_extension", ""),
         source=data.get("source", "upload"),
         source_detail=data.get("source_detail", ""),
+        source_metadata=data.get("source_metadata", {}),
         staged_at=datetime.fromisoformat(data["staged_at"])
         if data.get("staged_at")
         else datetime.now(timezone.utc),
         file_size_bytes=int(data.get("file_size_bytes", 0)),
         content_hash=data.get("content_hash", ""),
+        content_type=data.get("content_type", ""),
+        binary_available=bool(data.get("binary_available", False)),
+        storage_backend=data.get("storage_backend", "metadata_only"),
+        storage_reference=data.get("storage_reference", ""),
         status=data.get("status", "pending"),
+        extraction=data.get("extraction", {}),
+        filed_at=data.get("filed_at"),
+        filing_backend=data.get("filing_backend", ""),
+        filing_reference=data.get("filing_reference", ""),
     )
     if data.get("classification"):
         document.classification = deserialize_classification(data["classification"])

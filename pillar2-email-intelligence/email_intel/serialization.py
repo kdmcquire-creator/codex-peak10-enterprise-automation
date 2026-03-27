@@ -8,6 +8,7 @@ from .models import (
     AttachmentRouting,
     DealSignal,
     DraftResponse,
+    EventDraft,
     EmailMessage,
     TriageResult,
 )
@@ -28,6 +29,7 @@ def serialize_email(e: EmailMessage) -> dict[str, Any]:
         "received_at": e.received_at.isoformat(),
         "has_attachments": e.has_attachments,
         "attachment_names": e.attachment_names,
+        "conversation_id": e.conversation_id,
         "is_reply": e.is_reply,
     }
 
@@ -65,6 +67,48 @@ def serialize_draft_response(d: DraftResponse) -> dict[str, Any]:
         "tone": d.tone,
         "confidence": d.confidence,
         "needs_review": d.needs_review,
+        "approved": d.approved,
+        "approved_at": d.approved_at,
+        "approved_by": d.approved_by,
+        "to_recipients": d.to_recipients,
+        "cc_recipients": d.cc_recipients,
+        "sent": d.sent,
+        "sent_at": d.sent_at,
+        "sent_by": d.sent_by,
+        "delivery_mode": d.delivery_mode,
+        "last_send_attempt_at": d.last_send_attempt_at,
+        "last_send_attempted_by": d.last_send_attempted_by,
+        "send_block_reason": d.send_block_reason,
+    }
+
+
+def serialize_event_draft(d: EventDraft) -> dict[str, Any]:
+    return {
+        "event_draft_id": d.event_draft_id,
+        "source_message_id": d.source_message_id,
+        "source_subject": d.source_subject,
+        "thread_key": d.thread_key,
+        "title": d.title,
+        "attendees": d.attendees,
+        "candidate_time_phrases": d.candidate_time_phrases,
+        "duration_minutes": d.duration_minutes,
+        "meeting_format": d.meeting_format,
+        "location_hint": d.location_hint,
+        "summary": d.summary,
+        "description": d.description,
+        "suggested_action": d.suggested_action,
+        "needs_review": d.needs_review,
+        "confidence": d.confidence,
+        "review_notes": d.review_notes,
+        "approved": d.approved,
+        "approved_at": d.approved_at,
+        "approved_by": d.approved_by,
+        "status": d.status,
+        "created_event": d.created_event,
+        "created_event_at": d.created_event_at,
+        "created_event_by": d.created_event_by,
+        "created_event_id": d.created_event_id,
+        "created_event_web_link": d.created_event_web_link,
     }
 
 

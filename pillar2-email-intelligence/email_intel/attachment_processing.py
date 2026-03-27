@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 
 from .classifier import HIGH_CONFIDENCE_THRESHOLD, build_classification_prompt, classify_document
@@ -16,6 +17,9 @@ from .graph_client import GraphClient
 from .mailbox_ingestion import MailAttachment
 from .naming import recommend_filing
 from .openai_client import AzureOpenAIClient, get_openai_client
+
+
+logger = logging.getLogger("email-intel.attachments")
 
 
 SUPPORTED_SHAREPOINT_EXTENSIONS = {
@@ -136,13 +140,20 @@ def process_attachment(
         extraction_text or None,
     )
     if classification.confidence < HIGH_CONFIDENCE_THRESHOLD and oai.is_available:
-        prompt = build_classification_prompt(attachment.name, extraction_text)
-        ai_response = oai.classify_document(prompt)
-        if ai_response:
-            classification = classify_document(
+        try:
+            prompt = build_classification_prompt(attachment.name, extraction_text)
+            ai_response = oai.classify_document(prompt)
+            if ai_response:
+                classification = classify_document(
+                    attachment.name,
+                    extraction_text or None,
+                    ai_response,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Attachment AI classification failed for %s: %s",
                 attachment.name,
-                extraction_text or None,
-                ai_response,
+                exc,
             )
 
     extension = attachment.name.rsplit(".", 1)[-1] if "." in attachment.name else ""
@@ -161,19 +172,32 @@ def process_attachment(
     if not attachment.content_bytes:
         upload_result["reason"] = "attachment_empty"
     elif graph_client and graph_client.sharepoint_available:
-        response = graph_client.upload_file(
-            str(sharepoint_target["filename"]),
-            attachment.content_bytes,
-            folder_path=str(sharepoint_target["folder_path"]),
-        )
-        upload_result.update(
-            {
-                "attempted": True,
-                "uploaded": bool(response),
-                "item_id": response.get("id", ""),
-                "web_url": response.get("webUrl", ""),
-            }
-        )
+        try:
+            response = graph_client.upload_file(
+                str(sharepoint_target["filename"]),
+                attachment.content_bytes,
+                folder_path=str(sharepoint_target["folder_path"]),
+            )
+            upload_result.update(
+                {
+                    "attempted": True,
+                    "uploaded": bool(response),
+                    "item_id": response.get("id", ""),
+                    "web_url": response.get("webUrl", ""),
+                }
+            )
+            if not response:
+                upload_result["reason"] = "sharepoint_empty_response"
+        except Exception as exc:
+            logger.warning("Attachment upload failed for %s: %s", attachment.name, exc)
+            upload_result.update(
+                {
+                    "attempted": True,
+                    "uploaded": False,
+                    "reason": "sharepoint_upload_failed",
+                    "error": str(exc),
+                }
+            )
     else:
         upload_result["reason"] = "sharepoint_unavailable"
 

@@ -125,6 +125,48 @@ class DraftResponse:
     tone: str = "professional"   # "professional" | "brief" | "warm"
     confidence: float = 0.0
     needs_review: bool = True
+    approved: bool = False
+    approved_at: Optional[str] = None
+    approved_by: str = ""
+    to_recipients: list[str] = field(default_factory=list)
+    cc_recipients: list[str] = field(default_factory=list)
+    sent: bool = False
+    sent_at: Optional[str] = None
+    sent_by: str = ""
+    delivery_mode: str = "unsent"
+    last_send_attempt_at: Optional[str] = None
+    last_send_attempted_by: str = ""
+    send_block_reason: str = ""
+
+
+@dataclass
+class EventDraft:
+    """Structured meeting draft derived from a scheduling-oriented email."""
+    event_draft_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    source_message_id: str = ""
+    source_subject: str = ""
+    thread_key: str = ""
+    title: str = ""
+    attendees: list[str] = field(default_factory=list)
+    candidate_time_phrases: list[str] = field(default_factory=list)
+    duration_minutes: int = 30
+    meeting_format: str = "unspecified"
+    location_hint: str = "TBD"
+    summary: str = ""
+    description: str = ""
+    suggested_action: str = ""
+    needs_review: bool = True
+    confidence: float = 0.0
+    review_notes: str = ""
+    approved: bool = False
+    approved_at: Optional[str] = None
+    approved_by: str = ""
+    status: str = "draft"
+    created_event: bool = False
+    created_event_at: Optional[str] = None
+    created_event_by: str = ""
+    created_event_id: str = ""
+    created_event_web_link: str = ""
 
 
 @dataclass

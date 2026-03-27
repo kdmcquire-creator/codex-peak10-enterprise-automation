@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -15,6 +16,27 @@ from typing import Any, Optional
 logger = logging.getLogger("email-intel.graph")
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+MAIL_FOLDER_SELECT_FIELDS = ["id", "displayName", "wellKnownName"]
+
+
+class GraphRequestError(RuntimeError):
+    """Represents a failed Microsoft Graph request with parsed error detail."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str = "",
+        message: str = "",
+        url: str = "",
+    ) -> None:
+        self.status_code = status_code
+        self.code = code
+        self.url = url
+        detail = message or "Request failed"
+        if code:
+            detail = f"{code}: {detail}"
+        super().__init__(detail)
 
 
 @dataclass
@@ -108,6 +130,67 @@ class GraphClient:
             f"{urllib.parse.quote(message_id)}/attachments"
         )
 
+    def build_message_url(self, message_id: str, *, select_fields: Optional[list[str]] = None) -> str:
+        params = {}
+        if select_fields:
+            params["$select"] = ",".join(select_fields)
+
+        query = urllib.parse.urlencode(params, safe=",$ ") if params else ""
+        base_url = (
+            f"{self._config.graph_base_url}/users/"
+            f"{urllib.parse.quote(self._config.mailbox_address)}/messages/"
+            f"{urllib.parse.quote(message_id)}"
+        )
+        if not query:
+            return base_url
+        return f"{base_url}?{query}"
+
+    def build_mail_folders_url(
+        self,
+        *,
+        parent_folder_id: str = "",
+        select_fields: Optional[list[str]] = None,
+        top: int = 200,
+        include_hidden_folders: bool = False,
+    ) -> str:
+        params = {"$top": top}
+        if select_fields:
+            params["$select"] = ",".join(select_fields)
+        if include_hidden_folders:
+            params["includeHiddenFolders"] = "true"
+
+        query = urllib.parse.urlencode(params, safe=",$ ")
+        if parent_folder_id:
+            return (
+                f"{self._config.graph_base_url}/users/"
+                f"{urllib.parse.quote(self._config.mailbox_address)}/mailFolders/"
+                f"{urllib.parse.quote(parent_folder_id)}/childFolders?{query}"
+            )
+        return (
+            f"{self._config.graph_base_url}/users/"
+            f"{urllib.parse.quote(self._config.mailbox_address)}/mailFolders?{query}"
+        )
+
+    def build_mail_folder_url(
+        self,
+        folder_id: str,
+        *,
+        select_fields: Optional[list[str]] = None,
+    ) -> str:
+        params = {}
+        if select_fields:
+            params["$select"] = ",".join(select_fields)
+
+        query = urllib.parse.urlencode(params, safe=",$ ") if params else ""
+        base_url = (
+            f"{self._config.graph_base_url}/users/"
+            f"{urllib.parse.quote(self._config.mailbox_address)}/mailFolders/"
+            f"{urllib.parse.quote(folder_id)}"
+        )
+        if not query:
+            return base_url
+        return f"{base_url}?{query}"
+
     def build_upload_url(self, filename: str, folder_path: str = "") -> str:
         if not self.sharepoint_available:
             raise ValueError("SharePoint site/drive configuration is required")
@@ -136,6 +219,19 @@ class GraphClient:
         data = self._request_json("GET", self.build_attachments_url(message_id))
         return data.get("value", [])
 
+    def get_message(
+        self,
+        message_id: str,
+        *,
+        select_fields: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+        return self._request_json(
+            "GET",
+            self.build_message_url(message_id, select_fields=select_fields),
+        )
+
     def mark_message_processed(self, message_id: str, *, category: str = "Peak10Processed") -> dict[str, Any]:
         if not self.is_available:
             return {}
@@ -147,6 +243,110 @@ class GraphClient:
         payload = {"isRead": True, "categories": [category]}
         return self._request_json("PATCH", url, payload=payload)
 
+    def update_message(self, message_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+        url = self.build_message_url(message_id)
+        return self._request_json("PATCH", url, payload=updates)
+
+    def move_message(self, message_id: str, destination_id: str) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+        url = f"{self.build_message_url(message_id)}/move"
+        last_error: Optional[GraphRequestError] = None
+        for candidate in self._move_destination_candidates(destination_id):
+            try:
+                return self._request_json("POST", url, payload={"destinationId": candidate})
+            except GraphRequestError as exc:
+                last_error = exc
+                if exc.status_code != 404:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return self._request_json("POST", url, payload={"destinationId": destination_id})
+
+    def list_mail_folders(
+        self,
+        *,
+        parent_folder_id: str = "",
+        select_fields: Optional[list[str]] = None,
+        top: int = 200,
+        include_hidden_folders: bool = False,
+    ) -> list[dict[str, Any]]:
+        if not self.is_available:
+            return []
+        data = self._request_json(
+            "GET",
+            self.build_mail_folders_url(
+                parent_folder_id=parent_folder_id,
+                select_fields=select_fields,
+                top=top,
+                include_hidden_folders=include_hidden_folders,
+            ),
+        )
+        return data.get("value", [])
+
+    def get_mail_folder(
+        self,
+        folder_id: str,
+        *,
+        select_fields: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+        return self._request_json(
+            "GET",
+            self.build_mail_folder_url(folder_id, select_fields=select_fields),
+        )
+
+    def resolve_mail_folder_id(self, destination: str) -> str:
+        normalized = destination.strip().strip("/")
+        if not normalized or not self.is_available:
+            return normalized
+
+        path_segments = [segment.strip() for segment in normalized.split("/") if segment.strip()]
+        parent_folder_id = ""
+        for index, segment in enumerate(path_segments):
+            resolved = self._resolve_mail_folder_segment(segment, parent_folder_id=parent_folder_id)
+            if not resolved:
+                if len(path_segments) == 1:
+                    return normalized
+                raise ValueError(f"Unable to resolve mailbox folder path '{normalized}'")
+            parent_folder_id = resolved
+            if index == len(path_segments) - 1:
+                return resolved
+
+        return normalized
+
+    def _resolve_mail_folder_segment(self, segment: str, *, parent_folder_id: str = "") -> str:
+        # Well-known names and folder IDs can usually be dereferenced directly at the root.
+        if not parent_folder_id:
+            try:
+                folder = self.get_mail_folder(segment, select_fields=MAIL_FOLDER_SELECT_FIELDS)
+            except (GraphRequestError, urllib.error.HTTPError) as exc:
+                status_code = exc.status_code if isinstance(exc, GraphRequestError) else exc.code
+                if status_code != 404:
+                    raise
+            else:
+                folder_id = folder.get("id")
+                if isinstance(folder_id, str) and folder_id.strip():
+                    return folder_id
+
+        folders = self.list_mail_folders(
+            parent_folder_id=parent_folder_id,
+            select_fields=MAIL_FOLDER_SELECT_FIELDS,
+            top=200,
+            include_hidden_folders=True,
+        )
+        for folder in folders:
+            for key in ("displayName", "wellKnownName", "id"):
+                value = folder.get(key)
+                if isinstance(value, str) and value.strip().lower() == segment.lower():
+                    folder_id = folder.get("id")
+                    if isinstance(folder_id, str) and folder_id.strip():
+                        return folder_id
+        return ""
+
     def upload_file(self, filename: str, file_bytes: bytes, *, folder_path: str = "") -> dict[str, Any]:
         if not self.sharepoint_available:
             return {}
@@ -157,6 +357,83 @@ class GraphClient:
             payload=file_bytes,
             content_type="application/octet-stream",
         )
+
+    def send_mail(
+        self,
+        *,
+        to_recipients: list[str],
+        subject: str,
+        body: str,
+        cc_recipients: Optional[list[str]] = None,
+        content_type: str = "Text",
+    ) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+
+        def _graph_recipient(address: str) -> dict[str, Any]:
+            return {"emailAddress": {"address": address}}
+
+        url = (
+            f"{self._config.graph_base_url}/users/"
+            f"{urllib.parse.quote(self._config.mailbox_address)}/sendMail"
+        )
+        payload = {
+            "message": {
+                "subject": subject,
+                "body": {
+                    "contentType": content_type,
+                    "content": body,
+                },
+                "toRecipients": [_graph_recipient(address) for address in to_recipients],
+                "ccRecipients": [
+                    _graph_recipient(address)
+                    for address in (cc_recipients or [])
+                ],
+            },
+            "saveToSentItems": True,
+        }
+        return self._request_json("POST", url, payload=payload)
+
+    def create_calendar_event(
+        self,
+        *,
+        subject: str,
+        body: str,
+        attendees: list[str],
+        start_iso: str,
+        end_iso: str,
+        location_display_name: str = "",
+        timezone_name: str = "UTC",
+    ) -> dict[str, Any]:
+        if not self.is_available:
+            return {}
+
+        def _graph_recipient(address: str) -> dict[str, Any]:
+            return {"emailAddress": {"address": address}, "type": "required"}
+
+        url = (
+            f"{self._config.graph_base_url}/users/"
+            f"{urllib.parse.quote(self._config.mailbox_address)}/events"
+        )
+        payload: dict[str, Any] = {
+            "subject": subject,
+            "body": {
+                "contentType": "Text",
+                "content": body,
+            },
+            "start": {
+                "dateTime": start_iso,
+                "timeZone": timezone_name,
+            },
+            "end": {
+                "dateTime": end_iso,
+                "timeZone": timezone_name,
+            },
+            "attendees": [_graph_recipient(address) for address in attendees if address],
+        }
+        if location_display_name:
+            payload["location"] = {"displayName": location_display_name}
+        return self._request_json("POST", url, payload=payload)
 
     def _get_access_token(self) -> str:
         if self._access_token and time.time() < self._access_token_expires_at:
@@ -214,12 +491,49 @@ class GraphClient:
             headers=headers,
         )
 
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            graph_code = ""
+            graph_message = exc.reason if isinstance(exc.reason, str) else ""
+            if raw:
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    payload = {}
+                error_payload = payload.get("error", {}) if isinstance(payload, dict) else {}
+                if isinstance(error_payload, dict):
+                    graph_code = str(error_payload.get("code", "")).strip()
+                    graph_message = str(error_payload.get("message", graph_message)).strip()
+            raise GraphRequestError(
+                status_code=exc.code,
+                code=graph_code,
+                message=graph_message or f"HTTP {exc.code}",
+                url=url,
+            ) from exc
 
         if not raw:
             return {}
         return json.loads(raw.decode("utf-8"))
+
+    def _move_destination_candidates(self, destination_id: str) -> list[str]:
+        candidates: list[str] = []
+        seen: set[str] = set()
+
+        def _add(value: str) -> None:
+            normalized = value.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                candidates.append(normalized)
+
+        try:
+            _add(self.resolve_mail_folder_id(destination_id))
+        except Exception:
+            logger.debug("Unable to pre-resolve mail folder destination '%s'", destination_id, exc_info=True)
+        _add(destination_id)
+        return candidates
 
 
 _client: Optional[GraphClient] = None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,7 +48,11 @@ def parse_graph_message(message: dict[str, Any]) -> EmailMessage:
 
 def parse_graph_attachment(attachment: dict[str, Any]) -> MailAttachment:
     content_bytes = attachment.get("contentBytes", "")
-    decoded = base64.b64decode(content_bytes) if content_bytes else b""
+    try:
+        decoded = base64.b64decode(content_bytes, validate=True) if content_bytes else b""
+    except (binascii.Error, ValueError) as exc:
+        attachment_name = attachment.get("name", "") or attachment.get("id", "<unknown>")
+        raise ValueError(f"Invalid attachment payload for {attachment_name}") from exc
     return MailAttachment(
         attachment_id=attachment.get("id", ""),
         name=attachment.get("name", ""),
