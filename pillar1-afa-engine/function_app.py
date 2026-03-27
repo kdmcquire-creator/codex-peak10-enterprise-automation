@@ -10,23 +10,23 @@ Endpoints:
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
-import os
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import InvalidOperation
 
 import azure.functions as func
 
 from afa_engine.allocation_engine import AllocationEngine
 from afa_engine.ach_export import build_ach_records, render_nacha_flat, ACHExportError
 from afa_engine.models import (
+    ACHRecord,
     AllocationResult,
     AllocationRunStatus,
-    BudgetConstraint,
-    Vendor,
-    currency,
 )
+from afa_engine.pillar_clients import get_document_ai_client
 from afa_engine.repository import get_repository
 from afa_engine.serialization import (
     deserialize_budget,
@@ -178,6 +178,11 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
     result.status = AllocationRunStatus.EXPORTED
     nacha_text = render_nacha_flat(ach_records)
     _repository.save(result)
+    pillar3_stage = _stage_export_artifacts_in_pillar3(
+        result=result,
+        ach_records=ach_records,
+        nacha_text=nacha_text,
+    )
 
     return func.HttpResponse(
         body=json.dumps({
@@ -185,6 +190,7 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
             "run_id": run_id,
             "ach_records": [serialize_ach_record(r) for r in ach_records],
             "nacha_flat": nacha_text,
+            "pillar3_stage": pillar3_stage,
         }),
         mimetype="application/json",
         status_code=200,
@@ -197,6 +203,7 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="health", methods=["GET"])
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    document_ai = get_document_ai_client()
     return func.HttpResponse(
         body=json.dumps({
             "status": "healthy",
@@ -211,7 +218,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "readiness": {
                 "durable_storage_ready": True,
                 "approval_workflow_ready": False,
-                "cross_pillar_filing_ready": bool(os.environ.get("PILLAR3_BASE_URL")),
+                "cross_pillar_filing_ready": document_ai.is_available,
             },
         }),
         mimetype="application/json",
@@ -222,6 +229,184 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _stage_export_artifacts_in_pillar3(
+    *,
+    result: AllocationResult,
+    ach_records: list[ACHRecord],
+    nacha_text: str,
+) -> dict[str, object]:
+    client = get_document_ai_client()
+    if not client.is_available:
+        return {
+            "attempted": False,
+            "dispatched": False,
+            "reason": "pillar3_not_configured",
+            "artifacts": [],
+        }
+
+    created_on = result.created_at.date().isoformat()
+    ach_filename = f"{created_on}_AP_ACH_Export_{result.run_id}.txt"
+    schedule_filename = f"{created_on}_AP_PaymentSchedule_{result.run_id}.csv"
+    payment_schedule_csv = _render_payment_schedule_csv(ach_records)
+
+    artifact_specs = [
+        {
+            "document_id": f"{result.run_id}:ach_export",
+            "document_type": "ach_export",
+            "filename": ach_filename,
+            "content_type": "text/plain",
+            "content_bytes": nacha_text.encode("utf-8"),
+            "source_metadata": {"artifact_type": "ach_export"},
+        },
+        {
+            "document_id": f"{result.run_id}:payment_schedule",
+            "document_type": "payment_schedule",
+            "filename": schedule_filename,
+            "content_type": "text/csv",
+            "content_bytes": payment_schedule_csv.encode("utf-8"),
+            "source_metadata": {"artifact_type": "payment_schedule"},
+        },
+    ]
+
+    staged_artifacts: list[dict[str, object]] = []
+    failed_count = 0
+    for spec in artifact_specs:
+        payload = _build_pillar3_stage_payload(
+            result=result,
+            ach_records=ach_records,
+            document_id=str(spec["document_id"]),
+            document_type=str(spec["document_type"]),
+            filename=str(spec["filename"]),
+            content_type=str(spec["content_type"]),
+            content_bytes=spec["content_bytes"],  # type: ignore[arg-type]
+            source_metadata=spec["source_metadata"],  # type: ignore[arg-type]
+        )
+        try:
+            response = client.stage_document(payload)
+            if isinstance(response, dict):
+                document = response.get("document", {})
+                success = bool(response.get("success", False))
+            else:
+                document = {}
+                success = False
+            if not success:
+                failed_count += 1
+            staged_artifacts.append(
+                {
+                    "document_type": spec["document_type"],
+                    "attempted": True,
+                    "dispatched": success,
+                    "reason": "" if success else "pillar3_empty_response",
+                    "document_id": str(document.get("document_id", payload["document_id"])),
+                    "status": str(document.get("status", "")),
+                }
+            )
+        except Exception as exc:
+            failed_count += 1
+            logger.warning(
+                "Pillar 3 staging failed for run %s artifact %s: %s",
+                result.run_id,
+                spec["document_type"],
+                exc,
+            )
+            staged_artifacts.append(
+                {
+                    "document_type": spec["document_type"],
+                    "attempted": True,
+                    "dispatched": False,
+                    "reason": "pillar3_stage_failed",
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "attempted": True,
+        "dispatched": failed_count == 0,
+        "partial": 0 < failed_count < len(artifact_specs),
+        "reason": "" if failed_count == 0 else "pillar3_stage_failed",
+        "artifacts": staged_artifacts,
+    }
+
+
+def _build_pillar3_stage_payload(
+    *,
+    result: AllocationResult,
+    ach_records: list[ACHRecord],
+    document_id: str,
+    document_type: str,
+    filename: str,
+    content_type: str,
+    content_bytes: bytes,
+    source_metadata: dict[str, str],
+) -> dict[str, object]:
+    encoded = base64.b64encode(content_bytes).decode("utf-8")
+    content_hash = f"sha256:{hashlib.sha256(content_bytes).hexdigest()}"
+    classification = {
+        "document_type": document_type,
+        "confidence": 0.99,
+        "confidence_level": "high",
+        "metadata": {
+            "reference_number": result.run_id,
+            "custom_fields": {
+                "run_id": result.run_id,
+                "vendor_count": str(len(ach_records)),
+                "record_count": str(len(ach_records)),
+            },
+        },
+        "reasoning": "Generated by AFA Engine export workflow.",
+    }
+    filing = {
+        "recommended_path": "01_CORPORATE/Finance/AP",
+        "standardized_name": filename,
+        "document_type": document_type,
+        "confidence_level": "high",
+        "requires_review": False,
+        "alternative_paths": [],
+    }
+    extraction = {
+        "run_id": result.run_id,
+        "total_allocated": str(result.total_allocated),
+        "record_count": len(ach_records),
+        "vendor_count": len(ach_records),
+    }
+    return {
+        "document_id": document_id,
+        "filename": filename,
+        "source": "pillar1",
+        "source_detail": result.run_id,
+        "source_metadata": {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "run_status": result.status.value,
+            "total_allocated": str(result.total_allocated),
+            **source_metadata,
+        },
+        "content_type": content_type,
+        "file_size_bytes": len(content_bytes),
+        "content_hash": content_hash,
+        "file_bytes_base64": encoded,
+        "classification": classification,
+        "filing": filing,
+        "extraction": extraction,
+    }
+
+
+def _render_payment_schedule_csv(ach_records: list[ACHRecord]) -> str:
+    rows = ["vendor_name,routing_number,account_number_masked,amount,payment_date,invoice_ids"]
+    for record in ach_records:
+        masked_account = (
+            "****" + record.account_number[-4:]
+            if len(record.account_number) >= 4
+            else record.account_number
+        )
+        vendor_name = record.vendor_name.replace('"', '""')
+        invoice_ids = ";".join(record.invoice_ids).replace('"', '""')
+        rows.append(
+            f'"{vendor_name}",{record.routing_number},"{masked_account}",'
+            f"{record.amount},{record.payment_date.isoformat()},\"{invoice_ids}\""
+        )
+    return "\n".join(rows)
+
 
 def _error(message: str, status_code: int) -> func.HttpResponse:
     return func.HttpResponse(

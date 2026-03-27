@@ -12,6 +12,13 @@ param environment string = 'dev'
 @description('Base name for resources')
 param baseName string = 'peak10afa'
 
+@description('Pillar 3 Document AI Function App base URL (optional)')
+param pillar3DocumentAiUrl string = ''
+
+@description('Pillar 3 Document AI function key (optional)')
+@secure()
+param pillar3DocumentAiKey string = ''
+
 // ---------------------------------------------------------------------------
 // Variables
 // ---------------------------------------------------------------------------
@@ -140,6 +147,18 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'ENVIRONMENT'
           value: environment
+        }
+        {
+          name: 'PILLAR3_DOCUMENT_AI_URL'
+          value: pillar3DocumentAiUrl
+        }
+        {
+          name: 'PILLAR3_BASE_URL'
+          value: pillar3DocumentAiUrl
+        }
+        {
+          name: 'PILLAR3_DOCUMENT_AI_KEY'
+          value: pillar3DocumentAiKey
         }
       ]
     }

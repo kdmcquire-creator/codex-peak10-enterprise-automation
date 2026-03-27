@@ -288,6 +288,22 @@ components:
         nacha_flat:
           type: string
           description: Simplified NACHA flat-file text for bank upload
+        pillar3_stage:
+          type: object
+          description: Cross-pillar dispatch status for staged ACH/payment schedule artifacts.
+          properties:
+            attempted:
+              type: boolean
+            dispatched:
+              type: boolean
+            reason:
+              type: string
+            partial:
+              type: boolean
+            artifacts:
+              type: array
+              items:
+                type: object
 
     ErrorResponse:
       type: object

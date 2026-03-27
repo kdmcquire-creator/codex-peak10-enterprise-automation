@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -13,8 +15,10 @@ from afa_engine.models import (
 from afa_engine.repository import AllocationRunRepository
 
 
-def test_save_and_get_allocation_run(tmp_path):
-    repo = AllocationRunRepository(db_path=str(tmp_path / "afa.db"))
+def test_save_and_get_allocation_run():
+    base_dir = Path.cwd() / ".pytest-tmp"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    repo = AllocationRunRepository(db_path=str(base_dir / f"afa-{uuid.uuid4().hex}.db"))
     result = AllocationResult(
         run_id="run-123",
         status=AllocationRunStatus.PENDING_APPROVAL,
