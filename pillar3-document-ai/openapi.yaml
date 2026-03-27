@@ -134,6 +134,7 @@ components:
         document_id:
           type: string
           description: Optional caller-provided ID to support idempotent staging across pillars
+          pattern: "^[A-Za-z0-9._:-]{1,200}$"
         filename:
           type: string
         source:
@@ -146,6 +147,9 @@ components:
         source_metadata:
           type: object
           description: Optional upstream linkage metadata such as message_id, attachment_id, sender, or thread keys
+        content_text:
+          type: string
+          description: Optional extracted text used for content-first classification and version-state detection
         file_size_bytes:
           type: integer
         content_hash:

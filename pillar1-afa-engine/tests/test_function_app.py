@@ -113,9 +113,14 @@ def test_export_allocation_dispatches_ach_and_schedule_to_pillar3(monkeypatch):
 
     assert response.status_code == 200
     assert payload["success"] is True
+    assert payload["export_complete"] is True
+    assert payload["allocation_status"] == "exported"
     assert payload["pillar3_stage"]["attempted"] is True
     assert payload["pillar3_stage"]["dispatched"] is True
     assert len(document_ai.calls) == 2
+    saved = repo.get("run-123")
+    assert saved is not None
+    assert saved.status == AllocationRunStatus.EXPORTED
 
     staged_types = {
         str(call["classification"]["document_type"])  # type: ignore[index]
@@ -141,9 +146,14 @@ def test_export_allocation_skips_pillar3_when_not_configured(monkeypatch):
     payload = json.loads(response.get_body().decode("utf-8"))
 
     assert response.status_code == 200
+    assert payload["export_complete"] is False
+    assert payload["allocation_status"] == "approved"
     assert payload["pillar3_stage"]["attempted"] is False
     assert payload["pillar3_stage"]["reason"] == "pillar3_not_configured"
     assert document_ai.calls == []
+    saved = repo.get("run-123")
+    assert saved is not None
+    assert saved.status == AllocationRunStatus.APPROVED
 
 
 def test_export_allocation_records_pillar3_failures_without_blocking_export(monkeypatch):
@@ -162,6 +172,8 @@ def test_export_allocation_records_pillar3_failures_without_blocking_export(monk
 
     assert response.status_code == 200
     assert payload["success"] is True
+    assert payload["export_complete"] is False
+    assert payload["allocation_status"] == "approved"
     assert payload["pillar3_stage"]["attempted"] is True
     assert payload["pillar3_stage"]["dispatched"] is False
     assert payload["pillar3_stage"]["reason"] == "pillar3_stage_failed"
@@ -170,6 +182,9 @@ def test_export_allocation_records_pillar3_failures_without_blocking_export(monk
         artifact["reason"] == "pillar3_stage_failed"
         for artifact in payload["pillar3_stage"]["artifacts"]
     )
+    saved = repo.get("run-123")
+    assert saved is not None
+    assert saved.status == AllocationRunStatus.APPROVED
 
 
 def test_health_check_uses_document_ai_client_readiness(monkeypatch):

@@ -234,7 +234,83 @@ def test_stage_document_accepts_pillar1_ach_export_contract_payload(monkeypatch)
     assert payload["document"]["filing"]["recommended_path"] == "01_CORPORATE/Finance/AP"
     assert payload["document"]["source"] == "pillar1"
     assert payload["document"]["source_metadata"]["artifact_type"] == "ach_export"
+    assert payload["document"]["source_metadata"]["version_status"] == "unknown"
     assert payload["document"]["binary_available"] is True
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_stage_document_detects_final_and_wip_version_markers(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    final_response = function_app.stage_document(
+        FakeRequest(
+            {
+                "filename": "Agreement_ExecutionVersion.pdf",
+                "file_bytes_base64": base64.b64encode(b"execution version").decode("utf-8"),
+            }
+        )
+    )
+    final_payload = json.loads(final_response.get_body().decode("utf-8"))
+    assert final_response.status_code == 201
+    assert final_payload["document"]["source_metadata"]["version_status"] == "final"
+
+    wip_response = function_app.stage_document(
+        FakeRequest(
+            {
+                "filename": "Agreement_v12.docx",
+                "file_bytes_base64": base64.b64encode(b"draft").decode("utf-8"),
+            }
+        )
+    )
+    wip_payload = json.loads(wip_response.get_body().decode("utf-8"))
+    assert wip_response.status_code == 201
+    assert wip_payload["document"]["source_metadata"]["version_status"] == "wip"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_stage_document_uses_content_first_classification_when_content_text_is_present(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    response = function_app.stage_document(
+        FakeRequest(
+            {
+                "filename": "Invoice_123.pdf",
+                "content_text": "This Purchase and Sale Agreement is entered into by and between...",
+            }
+        )
+    )
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 201
+    assert payload["document"]["classification"]["document_type"] == "psa"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_stage_document_rejects_unsafe_document_id(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    response = function_app.stage_document(
+        FakeRequest(
+            {
+                "document_id": "..\\..\\escape",
+                "filename": "Invoice_123.pdf",
+                "file_bytes_base64": base64.b64encode(b"bytes").decode("utf-8"),
+            }
+        )
+    )
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 400
+    assert "unsafe characters" in payload["error"]
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 

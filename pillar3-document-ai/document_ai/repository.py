@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -124,20 +125,30 @@ class DocumentRepository:
         return correction
 
     def save_document_bytes(self, document_id: str, file_bytes: bytes) -> str:
-        path = self.staging_dir / document_id
+        path = self._resolve_safe_document_bytes_path(document_id)
         with self._lock:
             path.write_bytes(file_bytes)
         return str(path)
 
     def get_document_bytes(self, document_id: str) -> Optional[bytes]:
-        path = self.staging_dir / document_id
+        path = self._resolve_safe_document_bytes_path(document_id)
         if not path.exists():
             return None
         with self._lock:
             return path.read_bytes()
 
     def has_document_bytes(self, document_id: str) -> bool:
-        return (self.staging_dir / document_id).exists()
+        path = self._resolve_safe_document_bytes_path(document_id)
+        return path.exists()
+
+    def _resolve_safe_document_bytes_path(self, document_id: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", document_id):
+            raise ValueError("Invalid document_id for byte storage")
+        staging_root = self.staging_dir.resolve()
+        candidate = (staging_root / document_id).resolve()
+        if candidate.parent != staging_root:
+            raise ValueError("Invalid document_id for byte storage")
+        return candidate
 
     def count_documents(self) -> int:
         with self._lock:

@@ -281,6 +281,13 @@ components:
           type: boolean
         run_id:
           type: string
+        allocation_status:
+          type: string
+          description: Allocation run status after export + cross-pillar dispatch handling
+          enum: [approved, exported]
+        export_complete:
+          type: boolean
+          description: True only when ACH export artifacts were successfully dispatched to Pillar 3
         ach_records:
           type: array
           items:

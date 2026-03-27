@@ -17,6 +17,7 @@ from document_ai.classifier import (
     classify_by_content,
     classify_by_filename,
     classify_document,
+    infer_document_version_state,
     parse_ai_classification,
 )
 from document_ai.models import (
@@ -147,6 +148,14 @@ class TestUnifiedPipeline:
         assert result.document_type == DocumentType.ACH_EXPORT
         assert result.confidence >= 0.90
 
+    def test_content_overrides_filename_when_types_conflict(self):
+        result = classify_document(
+            filename="Invoice_123.pdf",
+            content_text="This Purchase and Sale Agreement is entered into by the parties",
+        )
+        assert result.document_type == DocumentType.PSA
+        assert result.reasoning.startswith("Content matched pattern")
+
     def test_content_boosts_filename(self):
         result = classify_document(
             filename="invoice_misc.pdf",
@@ -189,3 +198,20 @@ class TestUnifiedPipeline:
         )
         assert result.document_type == DocumentType.NDA
         assert result.confidence == 0.95
+
+
+class TestVersionInference:
+    def test_detects_final_version_from_filename(self):
+        status, signal = infer_document_version_state("MSA_DrillCo_Executed.pdf")
+        assert status == "final"
+        assert signal
+
+    def test_detects_wip_version_from_filename(self):
+        status, signal = infer_document_version_state("MSA_DrillCo_v03.docx")
+        assert status == "wip"
+        assert signal
+
+    def test_detects_unknown_version_when_no_markers(self):
+        status, signal = infer_document_version_state("MSA_DrillCo.docx")
+        assert status == "unknown"
+        assert signal == ""

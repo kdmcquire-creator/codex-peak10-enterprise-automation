@@ -12,7 +12,7 @@ def test_document_ai_client_prefers_primary_env_var(monkeypatch):
 
     client = DocumentAiClient()
 
-    assert client.is_available is True
+    assert client.is_available is False
     assert client._config.base_url == "https://pillar3.example"
 
 

@@ -175,19 +175,26 @@ def export_allocation(req: func.HttpRequest) -> func.HttpResponse:
     except ACHExportError as e:
         return _error(str(e), 409)
 
-    result.status = AllocationRunStatus.EXPORTED
     nacha_text = render_nacha_flat(ach_records)
-    _repository.save(result)
     pillar3_stage = _stage_export_artifacts_in_pillar3(
         result=result,
         ach_records=ach_records,
         nacha_text=nacha_text,
     )
+    export_complete = bool(pillar3_stage.get("dispatched", False))
+    result.status = (
+        AllocationRunStatus.EXPORTED
+        if export_complete
+        else AllocationRunStatus.APPROVED
+    )
+    _repository.save(result)
 
     return func.HttpResponse(
         body=json.dumps({
             "success": True,
             "run_id": run_id,
+            "allocation_status": result.status.value,
+            "export_complete": export_complete,
             "ach_records": [serialize_ach_record(r) for r in ach_records],
             "nacha_flat": nacha_text,
             "pillar3_stage": pillar3_stage,

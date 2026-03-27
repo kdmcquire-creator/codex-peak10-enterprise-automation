@@ -33,7 +33,7 @@ class DocumentAiClient:
 
     @property
     def is_available(self) -> bool:
-        return bool(self._config.base_url)
+        return bool(self._config.base_url and self._config.function_key)
 
     def stage_document(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.is_available:

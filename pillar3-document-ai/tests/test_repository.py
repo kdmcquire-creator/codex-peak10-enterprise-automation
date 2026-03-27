@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 import uuid
+import pytest
 
 from document_ai.models import (
     ClassificationConfidence,
@@ -86,4 +87,14 @@ def test_save_and_get_document_bytes(monkeypatch):
     assert reference
     assert repo.has_document_bytes("doc-123") is True
     assert repo.get_document_bytes("doc-123") == b"hello world"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_save_document_bytes_rejects_unsafe_document_id(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    with pytest.raises(ValueError, match="Invalid document_id"):
+        repo.save_document_bytes("..\\..\\escape", b"hello world")
     shutil.rmtree(temp_dir, ignore_errors=True)

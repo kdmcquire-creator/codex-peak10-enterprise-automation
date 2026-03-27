@@ -91,6 +91,20 @@ CONTENT_RULES: list[tuple[str, DocumentType, float]] = [
     (r"(?i)decline\s+curve\s+analysis", DocumentType.DECLINE_CURVE, 0.82),
 ]
 
+FINAL_VERSION_PATTERNS: list[str] = [
+    r"(?i)(?:^|[_\-\s])vF(?:$|[_\-\s\.])",
+    r"(?i)(?:^|[_\-\s])Executed(?:$|[_\-\s\.])",
+    r"(?i)(?:^|[_\-\s])ExecutionVersion(?:$|[_\-\s\.])",
+    r"(?i)\bfully\s+executed\b",
+    r"(?i)\bexecution\s+version\b",
+]
+
+WIP_VERSION_PATTERNS: list[str] = [
+    r"(?i)(?:^|[_\-\s])v\d{1,3}(?:$|[_\-\s\.])",
+    r"(?i)\bdraft\b",
+    r"(?i)\bwork[\-\s]?in[\-\s]?progress\b",
+]
+
 
 # ---------------------------------------------------------------------------
 # Rule-based classifier
@@ -228,33 +242,35 @@ def classify_document(
     The AI call itself is made externally (by the Azure Function) and
     passed in as ai_response. This keeps the classifier pure and testable.
     """
-    # Tier 1: filename
-    result = classify_by_filename(filename)
-    if result and result.confidence >= HIGH_CONFIDENCE_THRESHOLD:
-        return result
+    result: Optional[ClassificationResult] = None
 
-    # Tier 2: content keywords
+    # Tier 1: content keywords (content-first)
     if content_text:
         content_result = classify_by_content(content_text)
         if content_result:
-            # If filename also matched but at lower confidence, boost
-            if result and result.document_type == content_result.document_type:
-                boosted = min(result.confidence + 0.10, 1.0)
-                return ClassificationResult(
-                    document_type=result.document_type,
-                    confidence=boosted,
-                    confidence_level=_confidence_level(boosted),
-                    reasoning=f"Filename + content match: {result.document_type.value}",
-                    metadata=content_result.metadata,
-                )
-            # Content match is better than filename
-            if not result or content_result.confidence > result.confidence:
-                result = content_result
+            result = content_result
+            if content_result.confidence >= HIGH_CONFIDENCE_THRESHOLD:
+                return content_result
+
+    # Tier 2: filename fallback
+    filename_result = classify_by_filename(filename)
+    if filename_result:
+        if result and result.document_type == filename_result.document_type:
+            boosted = min(max(result.confidence, filename_result.confidence) + 0.05, 1.0)
+            return ClassificationResult(
+                document_type=result.document_type,
+                confidence=boosted,
+                confidence_level=_confidence_level(boosted),
+                reasoning=f"Content + filename match: {result.document_type.value}",
+                metadata=result.metadata,
+            )
+        if not result:
+            result = filename_result
 
     # Tier 3: AI classification
     if ai_response:
         ai_result = parse_ai_classification(ai_response)
-        if not result or ai_result.confidence > result.confidence:
+        if not result or ai_result.confidence >= result.confidence:
             return ai_result
 
     # Return best result or unknown
@@ -264,3 +280,30 @@ def classify_document(
         confidence_level=ClassificationConfidence.LOW,
         reasoning="No classification rules matched",
     )
+
+
+def infer_document_version_state(
+    filename: str,
+    content_text: Optional[str] = None,
+) -> tuple[str, str]:
+    """
+    Infer version state:
+      - final: execution/final markers
+      - wip: draft or numeric revision markers (v1, v02, ...)
+      - unknown: neither marker set
+
+    Returns (status, evidence_pattern).
+    """
+    combined = filename
+    if content_text:
+        combined = f"{filename}\n{content_text[:2000]}"
+
+    for pattern in FINAL_VERSION_PATTERNS:
+        if re.search(pattern, combined):
+            return ("final", pattern)
+
+    for pattern in WIP_VERSION_PATTERNS:
+        if re.search(pattern, combined):
+            return ("wip", pattern)
+
+    return ("unknown", "")

@@ -18,11 +18,16 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import azure.functions as func
 
-from document_ai.classifier import classify_document, build_classification_prompt
+from document_ai.classifier import (
+    classify_document,
+    build_classification_prompt,
+    infer_document_version_state,
+)
 from document_ai.corrections import CorrectionStore
 from document_ai.models import DocumentType, StagedDocument
 from document_ai.repository import get_repository
@@ -147,6 +152,12 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
     provided_document_id = body.get("document_id")
     if not isinstance(provided_document_id, str):
         provided_document_id = ""
+    if provided_document_id and not _is_safe_document_id(provided_document_id):
+        return _error("'document_id' contains unsafe characters", 400)
+
+    content_text = body.get("content_text")
+    if not isinstance(content_text, str):
+        content_text = ""
 
     doc = StagedDocument(
         original_filename=filename,
@@ -181,17 +192,30 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
     if extraction:
         doc.extraction = extraction
 
+    version_status, version_evidence = infer_document_version_state(
+        filename,
+        content_text=content_text,
+    )
+    doc.source_metadata.setdefault("version_status", version_status)
+    if version_evidence:
+        doc.source_metadata.setdefault("version_signal", version_evidence)
+
     file_bytes_base64 = body.get("file_bytes_base64", "")
     if file_bytes_base64:
         try:
             file_bytes = _decode_file_bytes(file_bytes_base64)
+            if not content_text:
+                content_text = _maybe_extract_text_preview(file_bytes)
         except ValueError as exc:
             return _error(str(exc), 400)
-        storage_backend, storage_reference = _persist_document_bytes(
-            doc.document_id,
-            file_bytes,
-            content_type=doc.content_type,
-        )
+        try:
+            storage_backend, storage_reference = _persist_document_bytes(
+                doc.document_id,
+                file_bytes,
+                content_type=doc.content_type,
+            )
+        except ValueError as exc:
+            return _error(str(exc), 400)
         doc.binary_available = True
         doc.storage_backend = storage_backend
         doc.storage_reference = storage_reference
@@ -201,11 +225,22 @@ def stage_document(req: func.HttpRequest) -> func.HttpResponse:
         if not doc.content_type:
             doc.content_type = "application/octet-stream"
 
+    if doc.classification is None and content_text:
+        doc.classification = classify_document(
+            filename=filename,
+            content_text=content_text,
+        )
     if doc.classification is not None and doc.filing is None:
         ext_for_filing = doc.file_extension or "bin"
         doc.filing = recommend_filing(doc.classification, filename, ext_for_filing)
     if doc.classification is not None:
         doc.status = "classified"
+        doc.classification.metadata.custom_fields.setdefault("version_status", version_status)
+        if version_evidence:
+            doc.classification.metadata.custom_fields.setdefault(
+                "version_signal",
+                version_evidence,
+            )
 
     _repository.save_document(doc)
 
@@ -460,6 +495,23 @@ def _normalize_object_dict(value: object) -> dict[str, object]:
     return {str(key): item for key, item in value.items()}
 
 
+def _is_safe_document_id(document_id: str) -> bool:
+    if len(document_id) > 200:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9._:-]+", document_id))
+
+
+def _maybe_extract_text_preview(file_bytes: bytes) -> str:
+    """
+    Lightweight text preview extraction from bytes for content-first rules.
+    Keeps staging resilient and avoids hard dependencies on external OCR here.
+    """
+    try:
+        return file_bytes.decode("utf-8", errors="ignore")[:2000]
+    except Exception:
+        return ""
+
+
 def _persist_document_bytes(
     document_id: str,
     file_bytes: bytes,
@@ -486,6 +538,10 @@ def _load_document_bytes(doc: StagedDocument) -> bytes | None:
         if blob_staging.is_available:
             return blob_staging.download_bytes(doc.document_id)
 
-    if getattr(_repository, "has_document_bytes", None) and _repository.has_document_bytes(doc.document_id):
-        return _repository.get_document_bytes(doc.document_id)
+    if getattr(_repository, "has_document_bytes", None):
+        try:
+            if _repository.has_document_bytes(doc.document_id):
+                return _repository.get_document_bytes(doc.document_id)
+        except ValueError:
+            return None
     return None
