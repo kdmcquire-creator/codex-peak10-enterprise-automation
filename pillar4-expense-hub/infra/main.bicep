@@ -5,6 +5,9 @@
 @description('Azure region')
 param location string = resourceGroup().location
 
+@description('Azure region for SQL resources. Defaults to the main deployment region.')
+param sqlLocation string = location
+
 @allowed(['dev', 'staging', 'prod'])
 param environment string = 'dev'
 param baseName string = 'peak10exp'
@@ -13,13 +16,15 @@ param baseName string = 'peak10exp'
 @description('SQL admin password')
 param sqlAdminPassword string
 
+@description('Optional override for the Azure SQL logical server name.')
+param sqlServerName string = 'sql-${baseName}${environment}'
+
 var suffix = '${baseName}${environment}'
 var functionAppName = 'func-${suffix}'
 var storageName = 'st${replace(suffix, '-', '')}'
 var appInsightsName = 'ai-${suffix}'
 var appServicePlanName = 'plan-${suffix}'
 var keyVaultName = 'kv-${suffix}'
-var sqlServerName = 'sql-${suffix}'
 var sqlDbName = 'db-expense-hub'
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -68,7 +73,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
 
 resource sqlServer 'Microsoft.Sql/servers@2023-05-01-preview' = {
   name: sqlServerName
-  location: location
+  location: sqlLocation
   properties: {
     administratorLogin: 'peak10admin'
     administratorLoginPassword: sqlAdminPassword
@@ -79,7 +84,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-05-01-preview' = {
 resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-05-01-preview' = {
   parent: sqlServer
   name: sqlDbName
-  location: location
+  location: sqlLocation
   sku: {
     name: environment == 'prod' ? 'S1' : 'Basic'
     tier: environment == 'prod' ? 'Standard' : 'Basic'

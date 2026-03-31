@@ -49,6 +49,7 @@ BRIEF_ITEM_STATE_LABELS = {
 BRIEF_ITEM_REASON_LABELS = {
     "handled_offline": "Handled offline",
     "replied": "Reply drafted or sent",
+    "scheduled": "Calendar event created",
     "archived": "Archived in mailbox",
     "archive_fallback": "Marked read; archive move failed",
     "source_missing": "Source message no longer in mailbox",
@@ -411,7 +412,39 @@ def _decorate_brief_item(item: dict[str, Any]) -> dict[str, Any]:
     item["reason_code"] = str(item.get("reason_code", "")).strip().lower()
     item["reason_label"] = BRIEF_ITEM_REASON_LABELS.get(item["reason_code"], "")
     item["reason_detail"] = str(item.get("reason_detail", "")).strip()
+    item["activity_at"] = _brief_item_activity_at(item)
+    item["activity_label"] = _brief_item_activity_label(item)
+    item["status_summary"] = _brief_item_status_summary(item)
     return item
+
+
+def _brief_item_activity_at(item: dict[str, Any]) -> str:
+    for field in ("state_changed_at", "updated_at", "last_seen_at", "first_seen_at"):
+        value = str(item.get(field, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _brief_item_activity_label(item: dict[str, Any]) -> str:
+    state = str(item.get("state", "open") or "open").lower()
+    if state == "resolved":
+        return "Cleared"
+    if state == "dismissed":
+        return "Dismissed"
+    return "Latest activity"
+
+
+def _brief_item_status_summary(item: dict[str, Any]) -> str:
+    reason_label = str(item.get("reason_label", "") or "").strip()
+    reason_detail = str(item.get("reason_detail", "") or "").strip()
+    if reason_label and reason_detail:
+        return f"{reason_label}: {reason_detail}"
+    if reason_label:
+        return reason_label
+    if item.get("carried_over") and item.get("carry_over_label"):
+        return str(item.get("carry_over_label", "")).strip()
+    return ""
 
 
 def _build_quick_actions(item: dict[str, Any]) -> list[dict[str, str]]:

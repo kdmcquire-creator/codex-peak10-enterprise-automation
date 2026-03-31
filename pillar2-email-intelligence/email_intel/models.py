@@ -167,6 +167,8 @@ class EventDraft:
     created_event_by: str = ""
     created_event_id: str = ""
     created_event_web_link: str = ""
+    scheduled_start_at: Optional[str] = None
+    scheduled_end_at: Optional[str] = None
 
 
 @dataclass

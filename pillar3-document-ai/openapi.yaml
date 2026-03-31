@@ -117,6 +117,106 @@ paths:
         "404":
           description: Not found
 
+  /database-updates/propose:
+    post:
+      operationId: proposeDatabaseUpdate
+      summary: Queue a proposed internal database update from a staged document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DatabaseUpdateProposeRequest"
+      responses:
+        "201":
+          description: Proposal created
+        "200":
+          description: Existing pending proposal returned
+
+  /database-updates:
+    get:
+      operationId: listDatabaseUpdates
+      summary: List queued internal database updates
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending_approval, approved, rejected]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+      responses:
+        "200":
+          description: Queue results
+
+  /database-updates/{update_id}:
+    get:
+      operationId: getDatabaseUpdate
+      summary: Get one internal database update proposal
+      parameters:
+        - name: update_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Proposal details
+        "404":
+          description: Not found
+
+  /database-updates/review:
+    post:
+      operationId: reviewDatabaseUpdate
+      summary: Approve or reject an internal database update proposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DatabaseUpdateReviewRequest"
+      responses:
+        "200":
+          description: Proposal reviewed
+
+  /database-updates/apply:
+    post:
+      operationId: applyDatabaseUpdate
+      summary: Apply an approved internal database update (shadow or active mode)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DatabaseUpdateApplyRequest"
+      responses:
+        "200":
+          description: Applied or shadow-applied
+        "503":
+          description: Apply failed
+
+  /database-updates/metrics/learning:
+    get:
+      operationId: getDatabaseUpdateLearningEval
+      summary: Summarize review/apply learning signals and guardrail metrics
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+      responses:
+        "200":
+          description: Learning evaluation summary
+
   /health:
     get:
       operationId: healthCheck
@@ -175,6 +275,14 @@ components:
           type: boolean
         document:
           $ref: "#/components/schemas/StagedDocument"
+        database_update:
+          oneOf:
+            - $ref: "#/components/schemas/DatabaseUpdateProposal"
+            - type: "null"
+        database_update_created:
+          type: boolean
+        database_update_reason:
+          type: string
 
     ClassifyRequest:
       type: object
@@ -206,6 +314,10 @@ components:
         ai_prompt:
           type: string
           description: The prompt to send to Azure OpenAI (only if needs_ai_classification)
+        database_update:
+          oneOf:
+            - $ref: "#/components/schemas/DatabaseUpdateProposal"
+            - type: "null"
 
     CorrectionRequest:
       type: object
@@ -327,6 +439,145 @@ components:
           type: string
         reference_number:
           type: string
+
+    DatabaseUpdateProposal:
+      type: object
+      properties:
+        update_id:
+          type: string
+        document_id:
+          type: string
+        document_type:
+          type: string
+        version_status:
+          type: string
+          enum: [final, wip, unknown]
+        target_table:
+          type: string
+        operation:
+          type: string
+        proposed_field_updates:
+          type: object
+        approved_field_updates:
+          type: object
+        effective_field_updates:
+          type: object
+        confidence:
+          type: number
+        trust_score:
+          type: number
+        policy_checks:
+          type: object
+        status:
+          type: string
+          enum: [pending_approval, approved, rejected]
+        apply_state:
+          type: string
+          enum: [pending, shadow_applied, applied, apply_failed]
+        apply_mode:
+          type: string
+          enum: [shadow, active]
+        applied_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        apply_reference:
+          type: string
+        apply_error:
+          type: string
+        proposed_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        reviewed_by:
+          type: string
+        review_notes:
+          type: string
+        source_summary:
+          type: object
+
+    DatabaseUpdateProposeRequest:
+      type: object
+      required: [document_id]
+      properties:
+        document_id:
+          type: string
+        force:
+          type: boolean
+          description: Force creation of a new pending proposal even if one already exists
+
+    DatabaseUpdateReviewRequest:
+      type: object
+      required: [update_id, decision]
+      properties:
+        update_id:
+          type: string
+        decision:
+          type: string
+          enum: [approve, reject]
+        reviewed_by:
+          type: string
+        review_notes:
+          type: string
+        edited_field_updates:
+          type: object
+          description: Optional owner-edited values to apply when approving
+
+    DatabaseUpdateApplyRequest:
+      type: object
+      required: [update_id]
+      properties:
+        update_id:
+          type: string
+        applied_by:
+          type: string
+        apply_notes:
+          type: string
+
+    LearningEvidence:
+      type: object
+      properties:
+        evidence_id:
+          type: string
+        update_id:
+          type: string
+        document_id:
+          type: string
+        document_type:
+          type: string
+        target_table:
+          type: string
+        event_type:
+          type: string
+          enum: [review, apply]
+        decision:
+          type: string
+        trust_score:
+          type: number
+        proposed_field_updates:
+          type: object
+        final_field_updates:
+          type: object
+        edited_fields:
+          type: array
+          items:
+            type: string
+        actor:
+          type: string
+        notes:
+          type: string
+        apply_mode:
+          type: string
+        outcome:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
 
     # -----------------------------------------------------------------
     # Inter-Pillar Integration Contracts

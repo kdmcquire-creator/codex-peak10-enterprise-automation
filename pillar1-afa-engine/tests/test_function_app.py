@@ -13,10 +13,11 @@ from afa_engine.models import (
     AllocationResult,
     AllocationRunStatus,
     BudgetConstraint,
+    Invoice,
     VendorPriority,
 )
 from afa_engine.repository import AllocationRunRepository
-from function_app import export_allocation, health_check
+from function_app import export_allocation, health_check, intake_invoice, list_intake_invoices
 
 
 class FakeRequest:
@@ -132,6 +133,18 @@ def test_export_allocation_dispatches_ach_and_schedule_to_pillar3(monkeypatch):
         "run-123:payment_schedule",
     }
     assert all(isinstance(call.get("file_bytes_base64"), str) for call in document_ai.calls)
+    assert all(
+        call["source_metadata"]["run_status"] == "exported"  # type: ignore[index]
+        for call in document_ai.calls
+    )
+    assert all(
+        call["source_metadata"]["version_status"] == "final"  # type: ignore[index]
+        for call in document_ai.calls
+    )
+    assert all(
+        call["extraction"]["amount"] == "500.00"  # type: ignore[index]
+        for call in document_ai.calls
+    )
 
 
 def test_export_allocation_skips_pillar3_when_not_configured(monkeypatch):
@@ -196,3 +209,93 @@ def test_health_check_uses_document_ai_client_readiness(monkeypatch):
     payload = json.loads(response.get_body().decode("utf-8"))
     assert response.status_code == 200
     assert payload["readiness"]["cross_pillar_filing_ready"] is True
+    assert payload["persistence"]["intake_invoices_stored"] == 0
+    assert payload["readiness"]["pillar4_intake_ready"] is True
+
+
+def test_intake_invoice_persists_pillar4_payload(monkeypatch):
+    repo = _build_repo()
+    monkeypatch.setattr("function_app._repository", repo)
+
+    response = intake_invoice(
+        FakeRequest(
+            {
+                "invoice_id": "claim-123",
+                "vendor_id": "emp-smoke-test-user",
+                "vendor_name": "Uber",
+                "vendor_priority": 2,
+                "amount_due": "35.00",
+                "due_date": "2026-03-29",
+                "description": "Expense reimbursement",
+                "receipt_ref": "doc-123",
+                "source": "pillar4_expense",
+            }
+        )
+    )
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 201
+    assert payload["success"] is True
+    assert payload["invoice"]["invoice_id"] == "claim-123"
+    assert payload["invoice"]["source"] == "pillar4_expense"
+    assert payload["queue_count"] == 1
+    assert repo.count_intake_invoices() == 1
+
+
+def test_list_intake_invoices_returns_recent_queue(monkeypatch):
+    repo = _build_repo()
+    monkeypatch.setattr("function_app._repository", repo)
+    repo.save_intake_invoice(
+        Invoice(
+            invoice_id="claim-queue-1",
+            vendor_id="emp-smoke-test-user",
+            vendor_name="Uber",
+            vendor_priority=VendorPriority.HIGH,
+            amount_due=Decimal("35.00"),
+            due_date=datetime(2026, 3, 29, tzinfo=timezone.utc).date(),
+            description="Expense reimbursement",
+            source="pillar4_expense",
+        )
+    )
+
+    request = FakeRequest({})
+    request.params = {"source": "pillar4_expense", "limit": "10"}
+    response = list_intake_invoices(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["count"] == 1
+    assert payload["invoices"][0]["invoice_id"] == "claim-queue-1"
+
+
+def test_build_pillar3_stage_payload_marks_exports_final_and_queueable():
+    from function_app import _build_pillar3_stage_payload
+
+    result = AllocationResult(
+        run_id="run-queueable",
+        status=AllocationRunStatus.APPROVED,
+        budget=BudgetConstraint(
+            total_budget=Decimal("1000.00"),
+            reserved_amount=Decimal("100.00"),
+        ),
+        total_allocated=Decimal("500.00"),
+        total_deferred=Decimal("0.00"),
+        budget_remaining=Decimal("400.00"),
+        created_at=datetime(2026, 3, 27, 12, 0, 0, tzinfo=timezone.utc),
+        line_items=[],
+    )
+
+    payload = _build_pillar3_stage_payload(
+        result=result,
+        ach_records=[],
+        document_id="run-queueable:ach_export",
+        document_type="ach_export",
+        filename="2026-03-27_AP_ACH_Export_run-queueable.txt",
+        content_type="text/plain",
+        content_bytes=b"nacha-lines",
+        source_metadata={"artifact_type": "ach_export"},
+    )
+
+    assert payload["source_metadata"]["run_status"] == "exported"  # type: ignore[index]
+    assert payload["source_metadata"]["version_status"] == "final"  # type: ignore[index]
+    assert payload["extraction"]["amount"] == "500.00"  # type: ignore[index]

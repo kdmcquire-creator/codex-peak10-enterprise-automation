@@ -109,6 +109,8 @@ def serialize_event_draft(d: EventDraft) -> dict[str, Any]:
         "created_event_by": d.created_event_by,
         "created_event_id": d.created_event_id,
         "created_event_web_link": d.created_event_web_link,
+        "scheduled_start_at": d.scheduled_start_at,
+        "scheduled_end_at": d.scheduled_end_at,
     }
 
 

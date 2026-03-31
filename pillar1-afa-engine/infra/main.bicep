@@ -12,6 +12,16 @@ param environment string = 'dev'
 @description('Base name for resources')
 param baseName string = 'peak10afa'
 
+@description('Hosting plan SKU for the Linux Function App')
+@allowed([
+  'Y1'
+  'B1'
+])
+param hostingPlanSku string = 'B1'
+
+@description('Existing App Service Plan resource ID to reuse (optional)')
+param existingAppServicePlanId string = ''
+
 @description('Pillar 3 Document AI Function App base URL (optional)')
 param pillar3DocumentAiUrl string = ''
 
@@ -29,6 +39,7 @@ var storageName = 'st${replace(suffix, '-', '')}'
 var appInsightsName = 'ai-${suffix}'
 var appServicePlanName = 'plan-${suffix}'
 var keyVaultName = 'kv-${suffix}'
+var hostingPlanTier = hostingPlanSku == 'Y1' ? 'Dynamic' : 'Basic'
 
 // ---------------------------------------------------------------------------
 // Storage Account (for Azure Functions runtime)
@@ -64,15 +75,15 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 // ---------------------------------------------------------------------------
-// App Service Plan (Consumption / Y1 for dev, B1 for prod)
+// App Service Plan
 // ---------------------------------------------------------------------------
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
+resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = if (empty(existingAppServicePlanId)) {
   name: appServicePlanName
   location: location
   sku: {
-    name: environment == 'prod' ? 'B1' : 'Y1'
-    tier: environment == 'prod' ? 'Basic' : 'Dynamic'
+    name: hostingPlanSku
+    tier: hostingPlanTier
   }
   properties: {
     reserved: true // Linux
@@ -110,7 +121,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: appServicePlan.id
+    serverFarmId: empty(existingAppServicePlanId) ? appServicePlan.id : existingAppServicePlanId
     httpsOnly: true
     siteConfig: {
       pythonVersion: '3.11'
@@ -131,6 +142,14 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'AzureWebJobsFeatureFlags'
           value: 'EnableWorkerIndexing'
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
         }
         {
           name: 'APPINSIGHTS_INSTRUMENTATIONKEY'

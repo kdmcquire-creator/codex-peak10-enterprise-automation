@@ -107,8 +107,10 @@ class Pillar1InvoicePayload:
     The exact payload pushed to Pillar 1 AP queue.
     This is what crosses the Chinese Wall — nothing more.
     """
+    invoice_id: str = ""
     vendor_id: str = ""
     vendor_name: str = ""
+    vendor_priority: int = 2
     amount_due: str = "0.00"
     due_date: str = ""
     description: str = ""

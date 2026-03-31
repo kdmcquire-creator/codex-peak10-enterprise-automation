@@ -25,6 +25,8 @@ from afa_engine.models import (
     ACHRecord,
     AllocationResult,
     AllocationRunStatus,
+    Invoice,
+    VendorPriority,
 )
 from afa_engine.pillar_clients import get_document_ai_client
 from afa_engine.repository import get_repository
@@ -34,6 +36,7 @@ from afa_engine.serialization import (
     deserialize_vendor,
     serialize_allocation_result,
     serialize_ach_record,
+    serialize_invoice,
 )
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
@@ -41,6 +44,76 @@ logger = logging.getLogger("afa-engine")
 
 
 _repository = get_repository()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/invoices/intake
+# ---------------------------------------------------------------------------
+
+@app.route(route="invoices/intake", methods=["POST"])
+def intake_invoice(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Intake a sanitized invoice payload from Pillar 4 or other upstream sources.
+
+    Request body:
+    {
+      "invoice_id": "...",
+      "vendor_id": "...",
+      "vendor_name": "...",
+      "vendor_priority": 2,
+      "amount_due": "35.00",
+      "due_date": "2026-03-29",
+      "description": "...",
+      "receipt_ref": "...",
+      "source": "pillar4_expense"
+    }
+    """
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON", 400)
+
+    try:
+        invoice = _deserialize_intake_invoice(body)
+    except (KeyError, ValueError, InvalidOperation) as exc:
+        return _error(f"Invalid intake invoice: {exc}", 400)
+
+    _repository.save_intake_invoice(invoice)
+
+    return func.HttpResponse(
+        body=json.dumps({
+            "success": True,
+            "invoice": serialize_invoice(invoice),
+            "queue_count": _repository.count_intake_invoices(),
+        }),
+        mimetype="application/json",
+        status_code=201,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/invoices/intake
+# ---------------------------------------------------------------------------
+
+@app.route(route="invoices/intake", methods=["GET"])
+def list_intake_invoices(req: func.HttpRequest) -> func.HttpResponse:
+    """List recently queued intake invoices."""
+    source = str(req.params.get("source", "")).strip() or None
+    try:
+        limit = int(req.params.get("limit", "50"))
+    except (TypeError, ValueError):
+        return _error("'limit' must be an integer", 400)
+
+    invoices = _repository.list_intake_invoices(source=source, limit=limit)
+    return func.HttpResponse(
+        body=json.dumps({
+            "success": True,
+            "count": len(invoices),
+            "invoices": [serialize_invoice(invoice) for invoice in invoices],
+        }),
+        mimetype="application/json",
+        status_code=200,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,11 +294,13 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
                 "backend": "sqlite",
                 "db_path": _repository.db_path,
                 "allocation_runs_stored": _repository.count_runs(),
+                "intake_invoices_stored": _repository.count_intake_invoices(),
             },
             "readiness": {
                 "durable_storage_ready": True,
                 "approval_workflow_ready": False,
                 "cross_pillar_filing_ready": document_ai.is_available,
+                "pillar4_intake_ready": True,
             },
         }),
         mimetype="application/json",
@@ -373,6 +448,7 @@ def _build_pillar3_stage_payload(
     }
     extraction = {
         "run_id": result.run_id,
+        "amount": str(result.total_allocated),
         "total_allocated": str(result.total_allocated),
         "record_count": len(ach_records),
         "vendor_count": len(ach_records),
@@ -384,7 +460,8 @@ def _build_pillar3_stage_payload(
         "source_detail": result.run_id,
         "source_metadata": {
             "exported_at": datetime.now(timezone.utc).isoformat(),
-            "run_status": result.status.value,
+            "run_status": AllocationRunStatus.EXPORTED.value,
+            "version_status": "final",
             "total_allocated": str(result.total_allocated),
             **source_metadata,
         },
@@ -413,6 +490,16 @@ def _render_payment_schedule_csv(ach_records: list[ACHRecord]) -> str:
             f"{record.amount},{record.payment_date.isoformat()},\"{invoice_ids}\""
         )
     return "\n".join(rows)
+
+
+def _deserialize_intake_invoice(data: dict[str, object]) -> Invoice:
+    normalized = dict(data)
+    if "vendor_priority" not in normalized:
+        normalized["vendor_priority"] = VendorPriority.HIGH.value
+    if "invoice_id" not in normalized or not str(normalized.get("invoice_id", "")).strip():
+        # Default to a deterministic queue id source when upstream does not provide one.
+        normalized["invoice_id"] = str(normalized.get("claim_id", "")) or ""
+    return deserialize_invoice(normalized)
 
 
 def _error(message: str, status_code: int) -> func.HttpResponse:

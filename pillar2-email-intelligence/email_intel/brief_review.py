@@ -16,20 +16,25 @@ def build_brief_review_html(*, api_code: str) -> str:
   <title>Morning Brief Review</title>
   <style>
     :root {{
-      --bg: #f4efe6;
-      --panel: rgba(255, 251, 245, 0.94);
-      --panel-strong: rgba(255, 251, 245, 0.98);
-      --ink: #1d2430;
-      --muted: #697282;
-      --accent: #0e5bd7;
-      --accent-soft: rgba(14, 91, 215, 0.12);
-      --line: rgba(29, 36, 48, 0.11);
+      --bg: #f2ebdf;
+      --panel: rgba(255, 250, 242, 0.9);
+      --panel-strong: rgba(255, 252, 246, 0.97);
+      --ink: #17202a;
+      --ink-soft: #263241;
+      --muted: #6d7480;
+      --accent: #1556c9;
+      --accent-soft: rgba(21, 86, 201, 0.11);
+      --accent-wash: rgba(21, 86, 201, 0.05);
+      --line: rgba(23, 32, 42, 0.12);
+      --line-strong: rgba(23, 32, 42, 0.2);
       --success: #126348;
       --warn: #9b5d00;
       --danger: #8d2d2d;
-      --shadow: 0 22px 60px rgba(24, 29, 38, 0.08);
+      --shadow: 0 30px 80px rgba(24, 29, 38, 0.08);
+      --paper-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
       --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
-      --sans: "Segoe UI", "Aptos", "Helvetica Neue", Arial, sans-serif;
+      --sans: "Aptos", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }}
 
     * {{ box-sizing: border-box; }}
@@ -40,20 +45,36 @@ def build_brief_review_html(*, api_code: str) -> str:
       color: var(--ink);
       font-family: var(--sans);
       background:
-        radial-gradient(circle at top left, rgba(14, 91, 215, 0.12), transparent 28%),
-        linear-gradient(180deg, #fbf7f0 0%, var(--bg) 52%, #efe7da 100%);
+        radial-gradient(circle at top left, rgba(21, 86, 201, 0.16), transparent 26%),
+        radial-gradient(circle at 82% 10%, rgba(23, 32, 42, 0.07), transparent 22%),
+        linear-gradient(180deg, #fbf7ef 0%, var(--bg) 46%, #e9dfcf 100%);
+      position: relative;
+    }}
+
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0, rgba(255, 255, 255, 0.16) 1px, transparent 1px, transparent 120px),
+        linear-gradient(rgba(23, 32, 42, 0.025) 1px, transparent 1px);
+      background-size: 120px 100%, 100% 28px;
+      pointer-events: none;
+      opacity: 0.22;
     }}
 
     .page {{
-      width: min(1460px, calc(100vw - 32px));
+      width: min(1500px, calc(100vw - 28px));
       margin: 0 auto;
-      padding: 28px 0 40px;
+      padding: 24px 0 42px;
+      position: relative;
+      z-index: 1;
     }}
 
     .hero {{
       display: grid;
-      grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.95fr);
-      gap: 22px;
+      grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.92fr);
+      gap: 18px;
       align-items: stretch;
     }}
 
@@ -62,23 +83,38 @@ def build_brief_review_html(*, api_code: str) -> str:
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
+      box-shadow: var(--paper-shadow), var(--shadow);
+      animation: rise-in 520ms ease both;
     }}
 
     .poster {{
-      border-radius: 28px;
-      padding: 28px;
+      border-radius: 32px;
+      padding: 34px 34px 28px;
       position: relative;
       overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.7), transparent 42%),
+        linear-gradient(180deg, var(--panel-strong), rgba(255, 248, 240, 0.9));
     }}
 
     .poster::after {{
       content: "";
       position: absolute;
-      inset: auto -40px -40px auto;
-      width: 240px;
-      height: 240px;
+      inset: auto -64px -70px auto;
+      width: 290px;
+      height: 290px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(14, 91, 215, 0.20), rgba(14, 91, 215, 0));
+      background: radial-gradient(circle, rgba(21, 86, 201, 0.24), rgba(21, 86, 201, 0));
+      pointer-events: none;
+    }}
+
+    .poster::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.48), transparent 28%),
+        repeating-linear-gradient(0deg, transparent 0, transparent 29px, rgba(23, 32, 42, 0.035) 29px, rgba(23, 32, 42, 0.035) 30px);
       pointer-events: none;
     }}
 
@@ -98,37 +134,42 @@ def build_brief_review_html(*, api_code: str) -> str:
 
     h1 {{
       margin: 18px 0 10px;
-      font-size: clamp(2.3rem, 4vw, 4.6rem);
-      line-height: 0.94;
+      font-family: var(--serif);
+      font-size: clamp(2.7rem, 4.5vw, 5.3rem);
+      line-height: 0.9;
       letter-spacing: -0.05em;
-      max-width: 10ch;
+      max-width: 11ch;
+      color: var(--ink-soft);
     }}
 
     .lede {{
-      max-width: 58ch;
+      max-width: 54ch;
       color: var(--muted);
-      font-size: 1rem;
-      line-height: 1.65;
-      margin: 0 0 22px;
+      font-size: 1.02rem;
+      line-height: 1.7;
+      margin: 0 0 26px;
     }}
 
     .stat-strip {{
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
-      margin-top: 22px;
+      margin-top: 24px;
     }}
 
     .stat {{
-      padding: 14px 16px;
+      padding: 16px 16px 14px;
       border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), transparent);
+      border-radius: 18px;
     }}
 
     .stat strong {{
       display: block;
-      font-size: 1.7rem;
+      font-size: 1.85rem;
       line-height: 1;
       margin-bottom: 6px;
+      color: var(--ink-soft);
     }}
 
     .stat span {{
@@ -137,11 +178,14 @@ def build_brief_review_html(*, api_code: str) -> str:
     }}
 
     .rail {{
-      border-radius: 24px;
-      padding: 22px;
+      border-radius: 28px;
+      padding: 24px;
       display: flex;
       flex-direction: column;
       gap: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 249, 241, 0.88)),
+        var(--panel);
     }}
 
     .rail-head, .section-head {{
@@ -154,9 +198,9 @@ def build_brief_review_html(*, api_code: str) -> str:
     .rail-head h2,
     .section-head h2 {{
       margin: 0;
-      font-size: 1rem;
+      font-size: 0.92rem;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.12em;
       color: var(--muted);
     }}
 
@@ -164,6 +208,12 @@ def build_brief_review_html(*, api_code: str) -> str:
       margin: 6px 0 0;
       color: var(--muted);
       font-size: 0.95rem;
+    }}
+
+    .section-head {{
+      padding-bottom: 14px;
+      margin-bottom: 4px;
+      border-bottom: 1px solid rgba(23, 32, 42, 0.08);
     }}
 
     .actions,
@@ -179,14 +229,26 @@ def build_brief_review_html(*, api_code: str) -> str:
       padding: 11px 16px;
       font: inherit;
       cursor: pointer;
-      transition: transform 140ms ease, background 140ms ease, color 140ms ease, opacity 140ms ease;
+      transition: transform 140ms ease, background 140ms ease, color 140ms ease, opacity 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
     }}
 
     button:hover {{ transform: translateY(-1px); }}
-    button.primary {{ background: var(--accent); color: white; }}
-    button.secondary {{ background: rgba(29, 36, 48, 0.06); color: var(--ink); }}
-    button.ghost {{ background: transparent; border: 1px solid var(--line); color: var(--muted); }}
-    button.active {{ background: var(--ink); color: white; }}
+    button.primary {{
+      background: linear-gradient(135deg, var(--accent), #0d448f);
+      color: white;
+      box-shadow: 0 12px 24px rgba(21, 86, 201, 0.2);
+    }}
+    button.secondary {{ background: rgba(23, 32, 42, 0.07); color: var(--ink); }}
+    button.ghost {{
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }}
+    button.active {{
+      background: var(--ink);
+      color: white;
+      box-shadow: 0 12px 24px rgba(23, 32, 42, 0.18);
+    }}
 
     .mono {{
       font-family: var(--mono);
@@ -196,11 +258,12 @@ def build_brief_review_html(*, api_code: str) -> str:
 
     .status {{
       min-height: 42px;
-      padding: 12px 14px;
+      padding: 13px 15px;
       border-radius: 18px;
-      background: rgba(29, 36, 48, 0.05);
+      background: rgba(23, 32, 42, 0.05);
       color: var(--muted);
       line-height: 1.5;
+      border: 1px solid rgba(23, 32, 42, 0.08);
     }}
 
     .status.success {{ color: var(--success); background: rgba(18, 99, 72, 0.10); }}
@@ -209,8 +272,8 @@ def build_brief_review_html(*, api_code: str) -> str:
     .layout {{
       display: grid;
       grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.9fr) minmax(340px, 0.95fr);
-      gap: 22px;
-      margin-top: 22px;
+      gap: 18px;
+      margin-top: 18px;
       align-items: start;
     }}
 
@@ -222,8 +285,16 @@ def build_brief_review_html(*, api_code: str) -> str:
     }}
 
     .lane, .queue, .context-panel {{
-      border-radius: 24px;
-      padding: 22px;
+      border-radius: 28px;
+      padding: 24px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 249, 241, 0.88)),
+        var(--panel);
+    }}
+
+    .context-panel {{
+      position: sticky;
+      top: 18px;
     }}
 
     .item-list {{
@@ -232,11 +303,28 @@ def build_brief_review_html(*, api_code: str) -> str:
     }}
 
     .item {{
-      padding: 16px 0 0;
+      padding: 18px 0 0;
       border-top: 1px solid var(--line);
+      position: relative;
     }}
 
     .item:first-child {{ border-top: 0; padding-top: 0; }}
+
+    .item::before {{
+      content: "";
+      position: absolute;
+      left: -10px;
+      top: 18px;
+      width: 3px;
+      height: calc(100% - 18px);
+      border-radius: 999px;
+      background: rgba(21, 86, 201, 0.18);
+    }}
+
+    .item:first-child::before {{
+      top: 2px;
+      height: calc(100% - 2px);
+    }}
 
     .item-top {{
       display: flex;
@@ -247,8 +335,9 @@ def build_brief_review_html(*, api_code: str) -> str:
 
     .item h3 {{
       margin: 0 0 8px;
-      font-size: 1.05rem;
+      font-size: 1.08rem;
       line-height: 1.25;
+      color: var(--ink-soft);
     }}
 
     .item p {{
@@ -271,8 +360,9 @@ def build_brief_review_html(*, api_code: str) -> str:
       padding: 6px 10px;
       border-radius: 999px;
       font-size: 0.8rem;
-      background: rgba(29, 36, 48, 0.06);
+      background: rgba(23, 32, 42, 0.06);
       color: var(--muted);
+      border: 1px solid rgba(23, 32, 42, 0.04);
     }}
 
     .chip.priority-high {{ color: white; background: #1d2430; }}
@@ -293,6 +383,7 @@ def build_brief_review_html(*, api_code: str) -> str:
       margin: 0 0 12px;
       font-size: 0.88rem;
       color: var(--muted);
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }}
 
     .meta strong {{
@@ -326,17 +417,22 @@ def build_brief_review_html(*, api_code: str) -> str:
       font-weight: 700;
     }}
 
-    .item-note textarea {{
+    .item-note textarea,
+    .item-note input {{
       width: 100%;
-      min-height: 74px;
-      resize: vertical;
       border-radius: 16px;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.72);
+      background: rgba(255, 255, 255, 0.78);
       padding: 12px 14px;
       color: var(--ink);
       font: inherit;
       line-height: 1.45;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    }}
+
+    .item-note textarea {{
+      min-height: 74px;
+      resize: vertical;
     }}
 
     .empty {{
@@ -357,7 +453,7 @@ def build_brief_review_html(*, api_code: str) -> str:
 
     .context-summary {{
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 16px;
     }}
@@ -365,7 +461,8 @@ def build_brief_review_html(*, api_code: str) -> str:
     .context-stat {{
       padding: 12px 14px;
       border-radius: 18px;
-      background: rgba(29, 36, 48, 0.05);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(23, 32, 42, 0.03));
+      border: 1px solid rgba(23, 32, 42, 0.06);
     }}
 
     .context-stat strong {{
@@ -389,7 +486,7 @@ def build_brief_review_html(*, api_code: str) -> str:
     }}
 
     .context-card {{
-      padding: 14px 0 0;
+      padding: 16px 0 0;
       border-top: 1px solid var(--line);
     }}
 
@@ -402,6 +499,7 @@ def build_brief_review_html(*, api_code: str) -> str:
       margin: 0 0 6px;
       font-size: 1rem;
       line-height: 1.35;
+      color: var(--ink-soft);
     }}
 
     .context-card p {{
@@ -410,10 +508,32 @@ def build_brief_review_html(*, api_code: str) -> str:
       line-height: 1.55;
     }}
 
+    .context-card a {{
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(21, 86, 201, 0.22);
+    }}
+
+    .context-card a:hover {{
+      border-bottom-color: var(--accent);
+    }}
+
+    @keyframes rise-in {{
+      from {{
+        opacity: 0;
+        transform: translateY(12px);
+      }}
+      to {{
+        opacity: 1;
+        transform: translateY(0);
+      }}
+    }}
+
     @media (max-width: 1260px) {{
       .layout {{ grid-template-columns: 1fr; }}
       .hero {{ grid-template-columns: 1fr; }}
       .stat-strip {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .context-panel {{ position: static; }}
     }}
 
     @media (max-width: 720px) {{
@@ -421,6 +541,7 @@ def build_brief_review_html(*, api_code: str) -> str:
       .poster, .rail, .lane, .queue, .context-panel {{ border-radius: 20px; padding: 18px; }}
       .stat-strip, .context-summary {{ grid-template-columns: 1fr 1fr; }}
       h1 {{ max-width: none; }}
+      .meta {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -519,7 +640,7 @@ def build_brief_review_html(*, api_code: str) -> str:
               <p>Open the underlying messages and drafts before you decide.</p>
             </div>
           </div>
-          <div id="contextPanel" class="context-empty">Choose “View context” on any brief item to load the underlying thread signals here.</div>
+          <div id="contextPanel" class="context-empty">Choose "View context" on any brief item to load the underlying thread signals here.</div>
         </aside>
       </div>
     </section>
@@ -622,6 +743,32 @@ def build_brief_review_html(*, api_code: str) -> str:
       }});
     }}
 
+    function formatDatetimeLocalValue(raw) {{
+      if (!raw) return '';
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return '';
+      const offsetMs = parsed.getTimezoneOffset() * 60000;
+      return new Date(parsed.getTime() - offsetMs).toISOString().slice(0, 16);
+    }}
+
+    function isoFromDatetimeLocal(value) {{
+      if (!value) return '';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return '';
+      return parsed.toISOString();
+    }}
+
+    function timestampForItem(item) {{
+      const raw = item.activity_at || item.state_changed_at || item.updated_at || item.last_seen_at || item.first_seen_at || '';
+      if (!raw) return 0;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    }}
+
+    function sortItemsByRecency(items) {{
+      return [...(items || [])].sort((left, right) => timestampForItem(right) - timestampForItem(left));
+    }}
+
     function renderItem(item, {{ includeContextButton = true }} = {{}}) {{
       const chips = [
         `<span class="chip priority-${{item.priority || 'low'}}">${{item.priority || 'low'}} priority</span>`,
@@ -637,6 +784,8 @@ def build_brief_review_html(*, api_code: str) -> str:
       if (item.contact) metaRows.push(`<div><strong>Contact:</strong> ${{item.contact}}</div>`);
       if (item.recipient) metaRows.push(`<div><strong>Recipient:</strong> ${{item.recipient}}</div>`);
       if (item.source_subject) metaRows.push(`<div><strong>Source:</strong> ${{item.source_subject}}</div>`);
+      if (item.activity_at) metaRows.push(`<div><strong>${{item.activity_label || 'Latest activity'}}:</strong> ${{formatTimestamp(item.activity_at)}}</div>`);
+      if (item.state !== 'open' && item.reason_label) chips.push(`<span class="chip">${{item.reason_label}}</span>`);
 
       const stateActions = (item.available_actions || []).map((action) => `
         <button
@@ -684,6 +833,7 @@ def build_brief_review_html(*, api_code: str) -> str:
           </div>
           ${{metaRows.length ? `<div class="meta">${{metaRows.join('')}}</div>` : ''}}
           <p>${{item.message || ''}}</p>
+          ${item.state !== 'open' && item.status_summary ? `<p><strong>Status:</strong> ${{item.status_summary}}</p>` : ''}
           ${item.could_mean ? `<p><strong>Could mean:</strong> ${{item.could_mean}}</p>` : ''}
           ${item.suggested_action ? `<p><strong>Suggested next step:</strong> ${{item.suggested_action}}</p>` : ''}
           ${item.reason_label ? `<p><strong>Resolution note:</strong> ${{item.reason_label}}${{item.reason_detail ? ` - ${{item.reason_detail}}` : ''}}</p>` : ''}
@@ -702,13 +852,13 @@ def build_brief_review_html(*, api_code: str) -> str:
     }}
 
     function renderQueue() {{
-      const filtered = state.queueItems.filter((item) => {{
+      const filtered = sortItemsByRecency(state.queueItems.filter((item) => {{
         if (state.queueFilter === 'open,resolved,dismissed') return true;
         return item.state === state.queueFilter;
-      }});
-      const cleared = state.queueItems
+      }}));
+      const cleared = sortItemsByRecency(state.queueItems
         .filter((item) => item.state === 'resolved' || item.state === 'dismissed')
-        .slice(0, 6);
+      ).slice(0, 6);
 
       renderItemList(queueListEl, filtered, 'No items match this review filter right now.');
       renderItemList(
@@ -729,7 +879,7 @@ def build_brief_review_html(*, api_code: str) -> str:
     function renderContextPanel() {{
       if (!state.contextItem || !state.contextData) {{
         contextPanelEl.className = 'context-empty';
-        contextPanelEl.textContent = 'Choose “View context” on any brief item to load the underlying thread signals here.';
+        contextPanelEl.textContent = 'Choose "View context" on any brief item to load the underlying thread signals here.';
         return;
       }}
 
@@ -758,11 +908,40 @@ def build_brief_review_html(*, api_code: str) -> str:
           <h4>${{draft.subject || 'Draft reply'}}</h4>
           <div class="chip-row">
             <span class="chip">${{draft.matched_on}}</span>
-            <span class="chip">${{draft.sent ? 'Sent draft' : 'Saved draft'}}</span>
+            <span class="chip">${{draft.sent ? 'Sent draft' : (draft.approved ? 'Approved draft' : 'Saved draft')}}</span>
+            ${draft.status ? `<span class="chip">${{draft.status}}</span>` : ''}
+            ${draft.tone ? `<span class="chip">${{draft.tone}}</span>` : ''}
           </div>
           <div class="meta">
             ${draft.to_recipients?.length ? `<div><strong>Recipients:</strong> ${{draft.to_recipients.join(', ')}}</div>` : ''}
-            ${(draft.sent_at || draft.saved_at) ? `<div><strong>When:</strong> ${{formatTimestamp(draft.sent_at || draft.saved_at)}}</div>` : ''}
+            ${draft.cc_recipients?.length ? `<div><strong>CC:</strong> ${{draft.cc_recipients.join(', ')}}</div>` : ''}
+            ${draft.approved_by ? `<div><strong>Approved by:</strong> ${{draft.approved_by}}</div>` : ''}
+            ${(draft.sent_at || draft.approved_at || draft.saved_at) ? `<div><strong>When:</strong> ${{formatTimestamp(draft.sent_at || draft.approved_at || draft.saved_at)}}</div>` : ''}
+          </div>
+          ${draft.body ? `<p>${{draft.body}}</p>` : ''}
+          ${draft.approval_note ? `<p><strong>Approval note:</strong> ${{draft.approval_note}}</p>` : ''}
+          ${draft.send_block_reason ? `<p><strong>Send blocked:</strong> ${{draft.send_block_reason}}</p>` : ''}
+          ${!draft.sent ? `
+            <div class="item-note">
+              <label for="draft-body-${draft.draft_id}">Draft body</label>
+              <textarea id="draft-body-${draft.draft_id}" data-draft-body-for="${draft.draft_id}" placeholder="Edit the reply before approval or send.">${draft.body || ''}</textarea>
+            </div>
+            <div class="item-note">
+              <label for="draft-note-${draft.draft_id}">Approval note</label>
+              <textarea id="draft-note-${draft.draft_id}" data-draft-note-for="${draft.draft_id}" placeholder="Optional note for approval history or send context.">${draft.approval_note || ''}</textarea>
+            </div>
+          ` : ''}
+          <div class="item-actions">
+            ${(draft.available_actions || []).map((action) => `
+              <button
+                class="${action.action === 'send' ? 'primary' : 'ghost'}"
+                type="button"
+                data-draft-id="${draft.draft_id}"
+                data-message-id="${draft.message_id || ''}"
+                data-action="${action.action}"
+                data-intent="draft-action"
+              >${action.label}</button>
+            `).join('')}
           </div>
         </article>
       `).join('');
@@ -771,13 +950,48 @@ def build_brief_review_html(*, api_code: str) -> str:
           <h4>${{draft.title || 'Draft event'}}</h4>
           <div class="chip-row">
             <span class="chip">${{draft.matched_on}}</span>
-            <span class="chip">${{draft.approved ? 'Approved draft' : 'Saved event draft'}}</span>
+            <span class="chip">${{draft.created_event ? 'Created event' : (draft.approved ? 'Approved draft' : 'Saved event draft')}}</span>
             ${draft.meeting_format ? `<span class="chip">${{draft.meeting_format}}</span>` : ''}
+            ${draft.status ? `<span class="chip">${{draft.status}}</span>` : ''}
           </div>
           <div class="meta">
             ${draft.candidate_time_phrases?.length ? `<div><strong>Candidate times:</strong> ${{draft.candidate_time_phrases.join(', ')}}</div>` : ''}
             ${draft.attendees?.length ? `<div><strong>Attendees:</strong> ${{draft.attendees.join(', ')}}</div>` : ''}
-            ${(draft.approved_at || draft.saved_at) ? `<div><strong>When:</strong> ${{formatTimestamp(draft.approved_at || draft.saved_at)}}</div>` : ''}
+            ${draft.location_hint ? `<div><strong>Location:</strong> ${{draft.location_hint}}</div>` : ''}
+            ${draft.scheduled_start_at ? `<div><strong>Scheduled:</strong> ${{formatTimestamp(draft.scheduled_start_at)}}</div>` : ''}
+            ${draft.approved_by ? `<div><strong>Approved by:</strong> ${{draft.approved_by}}</div>` : ''}
+            ${(draft.created_event_at || draft.approved_at || draft.saved_at) ? `<div><strong>When:</strong> ${{formatTimestamp(draft.created_event_at || draft.approved_at || draft.saved_at)}}</div>` : ''}
+          </div>
+          ${draft.summary ? `<p>${{draft.summary}}</p>` : ''}
+          ${draft.created_event_web_link ? `<p><a href="${{draft.created_event_web_link}}" target="_blank" rel="noreferrer">Open created event</a></p>` : ''}
+          ${(!draft.created_event && (draft.available_actions || []).some((action) => action.action === 'create_event')) ? `
+            <div class="item-note">
+              <label for="event-start-${draft.event_draft_id}">Event start</label>
+              <input
+                id="event-start-${draft.event_draft_id}"
+                type="datetime-local"
+                data-event-start-for="${draft.event_draft_id}"
+                value="${formatDatetimeLocalValue(draft.scheduled_start_at)}"
+              />
+            </div>
+          ` : ''}
+          ${!draft.created_event ? `
+            <div class="item-note">
+              <label for="event-review-${draft.event_draft_id}">Review notes</label>
+              <textarea id="event-review-${draft.event_draft_id}" data-event-review-for="${draft.event_draft_id}" placeholder="Optional note for approval or scheduling context.">${draft.review_notes || ''}</textarea>
+            </div>
+          ` : (draft.review_notes ? `<p><strong>Review notes:</strong> ${{draft.review_notes}}</p>` : '')}
+          <div class="item-actions">
+            ${(draft.available_actions || []).map((action) => `
+              <button
+                class="${action.action === 'create_event' ? 'primary' : 'ghost'}"
+                type="button"
+                data-event-draft-id="${draft.event_draft_id}"
+                data-source-message-id="${draft.source_message_id || ''}"
+                data-action="${action.action}"
+                data-intent="event-draft-action"
+              >${action.label}</button>
+            `).join('')}
           </div>
         </article>
       `).join('');
@@ -800,6 +1014,37 @@ def build_brief_review_html(*, api_code: str) -> str:
             <p><strong>${{eventDraft.title || 'Untitled meeting'}}</strong></p>
             ${eventDraft.summary ? `<p>${{eventDraft.summary}}</p>` : ''}
             ${eventDraft.review_notes ? `<p><strong>Review notes:</strong> ${{eventDraft.review_notes}}</p>` : ''}
+            ${eventDraft.created_event_web_link ? `<p><a href="${{eventDraft.created_event_web_link}}" target="_blank" rel="noreferrer">Open created event</a></p>` : ''}
+          </article>
+        `);
+      }}
+      if (latestAction?.response?.created_event) {{
+        const createdEvent = latestAction.response.created_event;
+        latestActionCards.push(`
+          <article class="context-card">
+            <h4>Created event</h4>
+            <div class="chip-row">
+              <span class="chip">Calendar event</span>
+              ${createdEvent.start_at ? `<span class="chip">${{formatTimestamp(createdEvent.start_at)}}</span>` : ''}
+            </div>
+            <div class="meta">
+              ${createdEvent.attendees?.length ? `<div><strong>Attendees:</strong> ${{createdEvent.attendees.join(', ')}}</div>` : ''}
+              ${createdEvent.id ? `<div><strong>Event id:</strong> ${{createdEvent.id}}</div>` : ''}
+            </div>
+            ${createdEvent.web_link ? `<p><a href="${{createdEvent.web_link}}" target="_blank" rel="noreferrer">Open created event</a></p>` : ''}
+          </article>
+        `);
+      }}
+      if (latestAction?.response?.resolved_item) {{
+        const resolvedItem = latestAction.response.resolved_item;
+        latestActionCards.push(`
+          <article class="context-card">
+            <h4>Queue update</h4>
+            <div class="chip-row">
+              <span class="chip">${{resolvedItem.state_label || resolvedItem.state || 'Updated'}}</span>
+              ${resolvedItem.reason_label ? `<span class="chip">${{resolvedItem.reason_label}}</span>` : ''}
+            </div>
+            <p>${{resolvedItem.title || 'The linked brief item was updated.'}}</p>
           </article>
         `);
       }}
@@ -890,6 +1135,66 @@ def build_brief_review_html(*, api_code: str) -> str:
         if (value) return value;
       }}
       return '';
+    }}
+
+    function startAtForEventDraft(eventDraftId) {{
+      const candidate = document.querySelector(`[data-event-start-for="${eventDraftId}"]`);
+      return isoFromDatetimeLocal(candidate?.value || '');
+    }}
+
+    function bodyForDraft(draftId) {{
+      const candidate = document.querySelector(`[data-draft-body-for="${draftId}"]`);
+      return (candidate?.value || '').trim();
+    }}
+
+    function noteForDraft(draftId) {{
+      const candidate = document.querySelector(`[data-draft-note-for="${draftId}"]`);
+      return (candidate?.value || '').trim();
+    }}
+
+    function reviewNoteForEventDraft(eventDraftId) {{
+      const candidate = document.querySelector(`[data-event-review-for="${eventDraftId}"]`);
+      return (candidate?.value || '').trim();
+    }}
+
+    async function updateEventDraft(eventDraftId, sourceMessageId, body) {{
+      return apiFetch(`${apiBase}/email/event-drafts/${eventDraftId}`, {{
+        method: 'PUT',
+        body: JSON.stringify({{
+          source_message_id: sourceMessageId,
+          ...body,
+        }}),
+      }});
+    }}
+
+    async function updateDraft(draftId, messageId, body) {{
+      return apiFetch(`${apiBase}/email/drafts/${draftId}`, {{
+        method: 'PUT',
+        body: JSON.stringify({{
+          message_id: messageId,
+          ...body,
+        }}),
+      }});
+    }}
+
+    async function sendDraft(draftId, messageId, body) {{
+      return apiFetch(`${apiBase}/email/drafts/${draftId}/send`, {{
+        method: 'POST',
+        body: JSON.stringify({{
+          message_id: messageId,
+          ...body,
+        }}),
+      }});
+    }}
+
+    async function createEventFromDraft(eventDraftId, sourceMessageId, body) {{
+      return apiFetch(`${apiBase}/email/event-drafts/${eventDraftId}/create-event`, {{
+        method: 'POST',
+        body: JSON.stringify({{
+          source_message_id: sourceMessageId,
+          ...body,
+        }}),
+      }});
     }}
 
     async function loadMorningBrief() {{
@@ -989,6 +1294,112 @@ def build_brief_review_html(*, api_code: str) -> str:
       return null;
     }}
 
+    async function runEventDraftAction(eventDraftId, sourceMessageId, action) {{
+      setLoading(true);
+      try {{
+        let response = null;
+        const reviewNotes = reviewNoteForEventDraft(eventDraftId);
+        if (action === 'approve') {{
+          response = await updateEventDraft(eventDraftId, sourceMessageId, {{
+            approved: true,
+            approved_by: 'brief-review-ui',
+            ...(reviewNotes ? {{ review_notes: reviewNotes }} : {{}}),
+          }});
+          setStatus('Event draft approved.', 'success');
+        }} else if (action === 'unapprove') {{
+          response = await updateEventDraft(eventDraftId, sourceMessageId, {{
+            approved: false,
+            review_notes: reviewNotes,
+          }});
+          setStatus('Event draft marked unapproved.', 'success');
+        }} else if (action === 'create_event') {{
+          const startAt = startAtForEventDraft(eventDraftId);
+          if (reviewNotes) {{
+            await updateEventDraft(eventDraftId, sourceMessageId, {{
+              review_notes: reviewNotes,
+            }});
+          }}
+          response = await createEventFromDraft(eventDraftId, sourceMessageId, {{
+            requested_by: 'brief-review-ui',
+            brief_item_id: state.contextItem?.item_id || '',
+            ...(startAt ? {{ start_at: startAt }} : {{}}),
+          }});
+          setStatus('Calendar event created from the approved draft.', 'success');
+        }}
+        if (response && state.contextItem) {{
+          state.lastQuickAction = {{
+            itemId: state.contextItem.item_id,
+            action: `event_draft_${{action}}`,
+            response,
+          }};
+          state.contextData = null;
+          await loadContext(state.contextItem.item_id);
+        }}
+        await refreshAll('', '');
+        return response;
+      }} catch (error) {{
+        setStatus(error.message || 'Unable to run the event-draft action.', 'error');
+      }} finally {{
+        setLoading(false);
+      }}
+      return null;
+    }}
+
+    async function runDraftAction(draftId, messageId, action) {{
+      setLoading(true);
+      try {{
+        const draftBody = bodyForDraft(draftId);
+        const approvalNote = noteForDraft(draftId);
+        let response = null;
+        if (action === 'approve') {{
+          response = await updateDraft(draftId, messageId, {{
+            approved: true,
+            approved_by: 'brief-review-ui',
+            ...(draftBody ? {{ body: draftBody }} : {{}}),
+            ...(approvalNote ? {{ approval_note: approvalNote }} : {{}}),
+          }});
+          setStatus('Reply draft approved.', 'success');
+        }} else if (action === 'unapprove') {{
+          response = await updateDraft(draftId, messageId, {{
+            approved: false,
+            ...(draftBody ? {{ body: draftBody }} : {{}}),
+            approval_note: approvalNote,
+          }});
+          setStatus('Reply draft marked unapproved.', 'success');
+        }} else if (action === 'send') {{
+          response = await sendDraft(draftId, messageId, {{
+            requested_by: 'brief-review-ui',
+            approved_by: 'brief-review-ui',
+            brief_item_id: state.contextItem?.item_id || '',
+            ...(draftBody ? {{ body: draftBody }} : {{}}),
+            ...(approvalNote ? {{ approval_note: approvalNote }} : {{}}),
+          }});
+          setStatus(
+            response?.sent
+              ? 'Reply draft sent.'
+              : `Reply draft processed in ${response?.delivery_mode || 'current'} mode.`,
+            'success',
+          );
+        }}
+        if (response && state.contextItem) {{
+          state.lastQuickAction = {{
+            itemId: state.contextItem.item_id,
+            action: `draft_${{action}}`,
+            response,
+          }};
+          state.contextData = null;
+          await loadContext(state.contextItem.item_id);
+        }}
+        await refreshAll('', '');
+        return response;
+      }} catch (error) {{
+        setStatus(error.message || 'Unable to run the draft action.', 'error');
+      }} finally {{
+        setLoading(false);
+      }}
+      return null;
+    }}
+
     stateFiltersEl.addEventListener('click', async (event) => {{
       const button = event.target.closest('button[data-state]');
       if (!button || state.loading) return;
@@ -1000,6 +1411,26 @@ def build_brief_review_html(*, api_code: str) -> str:
     }});
 
     document.addEventListener('click', async (event) => {{
+      const eventDraftButton = event.target.closest('button[data-event-draft-id][data-intent="event-draft-action"]');
+      if (eventDraftButton && !state.loading) {{
+        await runEventDraftAction(
+          eventDraftButton.dataset.eventDraftId,
+          eventDraftButton.dataset.sourceMessageId || '',
+          eventDraftButton.dataset.action,
+        );
+        return;
+      }}
+
+      const draftButton = event.target.closest('button[data-draft-id][data-intent="draft-action"]');
+      if (draftButton && !state.loading) {{
+        await runDraftAction(
+          draftButton.dataset.draftId,
+          draftButton.dataset.messageId || '',
+          draftButton.dataset.action,
+        );
+        return;
+      }}
+
       const button = event.target.closest('button[data-item-id][data-intent]');
       if (!button || state.loading) return;
       const itemId = button.dataset.itemId;

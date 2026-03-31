@@ -12,8 +12,17 @@ local.settings.json
 .tools/
 .azure-codex/
 .deploy/
+node_modules/
+.npm-cache/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+.next/
+.svelte-kit/
+coverage/
 .basetemp/
 .pytest-tmp/
 .test-temp/
 pytest-cache-files-*/
+tools/live-ops-mcp/*.log
 *.db

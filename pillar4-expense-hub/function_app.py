@@ -29,6 +29,7 @@ from expense_hub.models import (
     ExpenseClaim,
 )
 from expense_hub.repository import get_repository
+from expense_hub.pillar_clients import get_afa_engine_client
 from expense_hub.serialization import (
     serialize_expense_claim,
     serialize_pillar1_payload,
@@ -197,17 +198,41 @@ def push_to_ap(req: func.HttpRequest) -> func.HttpResponse:
         return _error(f"Claim '{claim_id}' not found", 404)
 
     try:
-        payload = _wall.push_to_pillar1(claim)
+        payload = _wall.build_pillar1_payload(claim)
         _wall.validate_no_leak(payload)
     except ChineseWallViolation as e:
         return _error(str(e), 403)
-    _repository.save_claim(claim)
+
+    afa_engine = get_afa_engine_client()
+    dispatch: dict[str, object]
+    if not afa_engine.is_available:
+        dispatch = {
+            "attempted": False,
+            "dispatched": False,
+            "reason": "pillar1_not_configured",
+        }
+    else:
+        try:
+            response = afa_engine.intake_invoice(serialize_pillar1_payload(payload))
+        except Exception as exc:
+            logger.warning("Failed to dispatch claim %s to Pillar 1: %s", claim_id, exc)
+            return _error(f"Failed to dispatch claim to Pillar 1: {exc}", 502)
+        dispatch = {
+            "attempted": True,
+            "dispatched": bool(response.get("success", False)),
+            "reason": "" if response.get("success", False) else "pillar1_intake_failed",
+            "response": response,
+        }
+        if dispatch["dispatched"]:
+            _wall.mark_pushed_to_pillar1(claim)
+            _repository.save_claim(claim)
 
     return func.HttpResponse(
         body=json.dumps({
             "success": True,
             "claim_id": claim_id,
             "pillar1_payload": serialize_pillar1_payload(payload),
+            "dispatch": dispatch,
             "audit_log_entries": len(_wall.audit_log),
         }),
         mimetype="application/json",
@@ -284,6 +309,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
                     os.environ.get("PLAID_CLIENT_ID") and os.environ.get("PLAID_SECRET")
                 ),
                 "receipt_routing_ready": bool(os.environ.get("PILLAR2_BASE_URL")),
+                "pillar1_dispatch_ready": get_afa_engine_client().is_available,
             },
         }),
         mimetype="application/json",

@@ -249,3 +249,82 @@ class CorrectionLog:
     corrected_by: str = ""
     corrected_at: datetime = field(default_factory=utc_now)
     notes: str = ""
+
+
+class DatabaseUpdateStatus(str, Enum):
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class DatabaseUpdateApplyState(str, Enum):
+    PENDING = "pending"
+    SHADOW_APPLIED = "shadow_applied"
+    APPLIED = "applied"
+    APPLY_FAILED = "apply_failed"
+
+
+@dataclass
+class DatabaseUpdateProposal:
+    """
+    A proposed internal database update derived from a staged document.
+
+    Proposals are queued for owner review before any downstream system
+    applies updates.
+    """
+
+    update_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    document_id: str = ""
+    document_type: DocumentType = DocumentType.UNKNOWN
+    version_status: str = "unknown"
+    target_table: str = "document_registry"
+    operation: str = "upsert"
+    proposed_field_updates: dict[str, Any] = field(default_factory=dict)
+    approved_field_updates: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.0
+    trust_score: float = 0.0
+    policy_checks: dict[str, Any] = field(default_factory=dict)
+    status: DatabaseUpdateStatus = DatabaseUpdateStatus.PENDING_APPROVAL
+    apply_state: DatabaseUpdateApplyState = DatabaseUpdateApplyState.PENDING
+    apply_mode: str = "shadow"
+    applied_at: Optional[str] = None
+    apply_reference: str = ""
+    apply_error: str = ""
+    proposed_at: datetime = field(default_factory=utc_now)
+    reviewed_at: Optional[str] = None
+    reviewed_by: str = ""
+    review_notes: str = ""
+    source_summary: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def effective_field_updates(self) -> dict[str, Any]:
+        if self.status == DatabaseUpdateStatus.APPROVED and self.approved_field_updates:
+            return self.approved_field_updates
+        return self.proposed_field_updates
+
+
+@dataclass
+class LearningEvidence:
+    """
+    Immutable learning signal captured from review/apply actions.
+
+    This supports controlled learning by analyzing human-approved outcomes
+    without letting model output mutate system behavior directly.
+    """
+
+    evidence_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    update_id: str = ""
+    document_id: str = ""
+    document_type: DocumentType = DocumentType.UNKNOWN
+    target_table: str = ""
+    event_type: str = "review"  # "review" | "apply"
+    decision: str = ""  # "approve" | "reject" | "applied" | "shadow_applied" | "apply_failed"
+    trust_score: float = 0.0
+    proposed_field_updates: dict[str, Any] = field(default_factory=dict)
+    final_field_updates: dict[str, Any] = field(default_factory=dict)
+    edited_fields: list[str] = field(default_factory=list)
+    actor: str = ""
+    notes: str = ""
+    apply_mode: str = ""
+    outcome: str = ""
+    captured_at: datetime = field(default_factory=utc_now)

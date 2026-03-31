@@ -50,8 +50,10 @@ def serialize_expense_claim(c: ExpenseClaim) -> dict[str, Any]:
 
 def serialize_pillar1_payload(p: Pillar1InvoicePayload) -> dict[str, Any]:
     return {
+        "invoice_id": p.invoice_id,
         "vendor_id": p.vendor_id,
         "vendor_name": p.vendor_name,
+        "vendor_priority": p.vendor_priority,
         "amount_due": p.amount_due,
         "due_date": p.due_date,
         "description": p.description,

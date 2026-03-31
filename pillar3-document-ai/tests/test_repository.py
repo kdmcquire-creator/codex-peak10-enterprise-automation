@@ -11,8 +11,11 @@ from document_ai.models import (
     ClassificationConfidence,
     ClassificationResult,
     CorrectionLog,
+    DatabaseUpdateProposal,
+    DatabaseUpdateStatus,
     DocumentType,
     FilingRecommendation,
+    LearningEvidence,
     StagedDocument,
 )
 from document_ai.repository import DocumentRepository
@@ -97,4 +100,103 @@ def test_save_document_bytes_rejects_unsafe_document_id(monkeypatch):
 
     with pytest.raises(ValueError, match="Invalid document_id"):
         repo.save_document_bytes("..\\..\\escape", b"hello world")
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_save_and_list_database_updates():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    pending = DatabaseUpdateProposal(
+        update_id="upd-pending",
+        document_id="doc-123",
+        document_type=DocumentType.CONTRACT,
+        version_status="final",
+        target_table="legal_contracts",
+        proposed_field_updates={"counterparty": "Acme"},
+    )
+    approved = DatabaseUpdateProposal(
+        update_id="upd-approved",
+        document_id="doc-456",
+        document_type=DocumentType.INVOICE,
+        version_status="final",
+        target_table="finance_ap_invoices",
+        proposed_field_updates={"amount": "15000"},
+        approved_field_updates={"amount": "14950"},
+        status=DatabaseUpdateStatus.APPROVED,
+    )
+
+    repo.save_database_update(pending)
+    repo.save_database_update(approved)
+
+    all_updates = repo.list_database_updates(limit=10)
+    pending_updates = repo.list_database_updates(
+        status=DatabaseUpdateStatus.PENDING_APPROVAL,
+        limit=10,
+    )
+
+    assert len(all_updates) == 2
+    assert len(pending_updates) == 1
+    assert pending_updates[0].update_id == "upd-pending"
+    assert repo.count_database_updates() == 2
+    assert repo.count_database_updates(status=DatabaseUpdateStatus.APPROVED) == 1
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_get_pending_database_update_for_document():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    rejected = DatabaseUpdateProposal(
+        update_id="upd-old",
+        document_id="doc-123",
+        document_type=DocumentType.CONTRACT,
+        version_status="final",
+        target_table="legal_contracts",
+        proposed_field_updates={"counterparty": "Acme"},
+        status=DatabaseUpdateStatus.REJECTED,
+    )
+    pending = DatabaseUpdateProposal(
+        update_id="upd-new",
+        document_id="doc-123",
+        document_type=DocumentType.CONTRACT,
+        version_status="final",
+        target_table="legal_contracts",
+        proposed_field_updates={"counterparty": "Acme II"},
+    )
+    repo.save_database_update(rejected)
+    repo.save_database_update(pending)
+
+    loaded = repo.get_pending_database_update_for_document("doc-123")
+    assert loaded is not None
+    assert loaded.update_id == "upd-new"
+    assert loaded.status == DatabaseUpdateStatus.PENDING_APPROVAL
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_save_learning_evidence_and_applied_updates():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    evidence = LearningEvidence(
+        evidence_id="evi-1",
+        update_id="upd-1",
+        document_id="doc-1",
+        document_type=DocumentType.CONTRACT,
+        target_table="legal_contracts",
+        event_type="review",
+        decision="approve",
+        proposed_field_updates={"counterparty": "Acme"},
+        final_field_updates={"counterparty": "Acme"},
+        actor="db.owner",
+    )
+    repo.save_learning_evidence(evidence)
+    records = repo.list_learning_evidence(limit=10)
+    reference = repo.save_applied_update("upd-1", {"counterparty": "Acme"})
+
+    assert len(records) == 1
+    assert records[0].evidence_id == "evi-1"
+    assert repo.count_learning_evidence() == 1
+    assert reference.endswith("/upd-1")
+    assert repo.count_applied_updates() == 1
     shutil.rmtree(temp_dir, ignore_errors=True)

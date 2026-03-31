@@ -179,7 +179,7 @@ def test_stage_document_preserves_upstream_classification_and_metadata(monkeypat
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_stage_document_accepts_pillar1_ach_export_contract_payload(monkeypatch):
+def test_stage_document_accepts_pillar1_ach_export_payload_and_queues_database_update(monkeypatch):
     temp_dir = _make_test_dir()
     monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
     repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
@@ -195,6 +195,7 @@ def test_stage_document_accepts_pillar1_ach_export_contract_payload(monkeypatch)
                 "source_metadata": {
                     "artifact_type": "ach_export",
                     "run_status": "exported",
+                    "version_status": "final",
                     "total_allocated": "500.00",
                 },
                 "content_type": "text/plain",
@@ -218,6 +219,7 @@ def test_stage_document_accepts_pillar1_ach_export_contract_payload(monkeypatch)
                     "alternative_paths": [],
                 },
                 "extraction": {
+                    "amount": "500.00",
                     "run_id": "run-abc",
                     "record_count": 1,
                     "vendor_count": 1,
@@ -234,8 +236,10 @@ def test_stage_document_accepts_pillar1_ach_export_contract_payload(monkeypatch)
     assert payload["document"]["filing"]["recommended_path"] == "01_CORPORATE/Finance/AP"
     assert payload["document"]["source"] == "pillar1"
     assert payload["document"]["source_metadata"]["artifact_type"] == "ach_export"
-    assert payload["document"]["source_metadata"]["version_status"] == "unknown"
+    assert payload["document"]["source_metadata"]["version_status"] == "final"
     assert payload["document"]["binary_available"] is True
+    assert payload["database_update_created"] is True
+    assert payload["database_update"]["target_table"] == "finance_ap_schedule"
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -268,6 +272,58 @@ def test_stage_document_detects_final_and_wip_version_markers(monkeypatch):
     wip_payload = json.loads(wip_response.get_body().decode("utf-8"))
     assert wip_response.status_code == 201
     assert wip_payload["document"]["source_metadata"]["version_status"] == "wip"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_stage_document_queues_database_update_for_final_document(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    response = function_app.stage_document(
+        FakeRequest(
+            {
+                "filename": "MSA_ExecutionVersion.pdf",
+                "content_text": "Master Services Agreement between Peak10 and DrillCo.",
+                "extraction": {
+                    "counterparty": "DrillCo Services",
+                    "effective_date": "2026-03-27",
+                },
+            }
+        )
+    )
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 201
+    assert payload["database_update_created"] is True
+    assert payload["database_update"]["status"] == "pending_approval"
+    assert payload["database_update"]["target_table"] == "legal_contracts"
+    assert repo.count_database_updates() == 1
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_stage_document_skips_database_update_for_wip_document(monkeypatch):
+    temp_dir = _make_test_dir()
+    monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    response = function_app.stage_document(
+        FakeRequest(
+            {
+                "filename": "MSA_v12.docx",
+                "extraction": {"counterparty": "DrillCo Services"},
+            }
+        )
+    )
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 201
+    assert payload["database_update"] is None
+    assert payload["database_update_created"] is False
+    assert payload["database_update_reason"] == "version_not_final"
+    assert repo.count_database_updates() == 0
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -506,4 +562,305 @@ def test_file_document_does_not_mark_filed_when_upload_fails(monkeypatch):
     assert stored is not None
     assert stored.status == "classified"
     assert stored.filed_at is None
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_propose_and_review_workflow(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    doc = StagedDocument(
+        document_id="doc-db-1",
+        original_filename="MSA_ExecutionVersion.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={
+            "counterparty": "DrillCo Services",
+            "effective_date": "2026-03-27",
+            "amount": "150000.00",
+        },
+        classification=ClassificationResult(
+            document_type=DocumentType.CONTRACT,
+            confidence=0.93,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+        filing=FilingRecommendation(
+            recommended_path="01_CORPORATE/Legal/Contracts",
+            standardized_name="2026-03-27_MSA_DrillCo.pdf",
+            document_type=DocumentType.CONTRACT,
+            confidence_level=ClassificationConfidence.HIGH,
+            requires_review=False,
+        ),
+    )
+    repo.save_document(doc)
+
+    propose_response = function_app.propose_database_update(
+        FakeRequest({"document_id": "doc-db-1"})
+    )
+    propose_payload = json.loads(propose_response.get_body().decode("utf-8"))
+    update_id = propose_payload["database_update"]["update_id"]
+
+    assert propose_response.status_code == 201
+    assert propose_payload["created"] is True
+    assert propose_payload["database_update"]["status"] == "pending_approval"
+
+    review_response = function_app.review_database_update(
+        FakeRequest(
+            {
+                "update_id": update_id,
+                "decision": "approve",
+                "reviewed_by": "finance.owner",
+                "review_notes": "Approved with corrected amount.",
+                "edited_field_updates": {"amount": "149500.00"},
+            }
+        )
+    )
+    review_payload = json.loads(review_response.get_body().decode("utf-8"))
+    assert review_response.status_code == 200
+    assert review_payload["database_update"]["status"] == "approved"
+    assert review_payload["database_update"]["approved_field_updates"]["amount"] == "149500.00"
+    assert review_payload["database_update"]["reviewed_by"] == "finance.owner"
+    assert review_payload["learning_evidence"]["event_type"] == "review"
+    assert review_payload["learning_evidence"]["decision"] == "approve"
+
+    list_request = FakeRequest()
+    list_request.params = {"status": "approved"}
+    list_response = function_app.list_database_updates(list_request)
+    list_payload = json.loads(list_response.get_body().decode("utf-8"))
+
+    assert list_response.status_code == 200
+    assert list_payload["count"] == 1
+    assert list_payload["database_updates"][0]["update_id"] == update_id
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_review_rejects_pending_item(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    doc = StagedDocument(
+        document_id="doc-db-2",
+        original_filename="Invoice_Executed.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={"vendor_name": "Rig Services", "amount": "1200.00"},
+        classification=ClassificationResult(
+            document_type=DocumentType.INVOICE,
+            confidence=0.91,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+    )
+    repo.save_document(doc)
+
+    propose_response = function_app.propose_database_update(
+        FakeRequest({"document_id": "doc-db-2"})
+    )
+    propose_payload = json.loads(propose_response.get_body().decode("utf-8"))
+    update_id = propose_payload["database_update"]["update_id"]
+
+    reject_response = function_app.review_database_update(
+        FakeRequest(
+            {
+                "update_id": update_id,
+                "decision": "reject",
+                "reviewed_by": "ops.owner",
+                "review_notes": "Not enough data quality.",
+            }
+        )
+    )
+    reject_payload = json.loads(reject_response.get_body().decode("utf-8"))
+    assert reject_response.status_code == 200
+    assert reject_payload["database_update"]["status"] == "rejected"
+    assert reject_payload["database_update"]["approved_field_updates"] == {}
+    assert reject_payload["learning_evidence"]["decision"] == "reject"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_apply_shadow_mode(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+    monkeypatch.setenv("DATABASE_UPDATE_MODE", "shadow")
+
+    doc = StagedDocument(
+        document_id="doc-db-shadow",
+        original_filename="Invoice_Executed.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={"vendor_name": "Rig Services", "amount": "1200.00"},
+        classification=ClassificationResult(
+            document_type=DocumentType.INVOICE,
+            confidence=0.94,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+    )
+    repo.save_document(doc)
+    propose_payload = json.loads(
+        function_app.propose_database_update(FakeRequest({"document_id": "doc-db-shadow"}))
+        .get_body()
+        .decode("utf-8")
+    )
+    update_id = propose_payload["database_update"]["update_id"]
+    function_app.review_database_update(
+        FakeRequest({"update_id": update_id, "decision": "approve"})
+    )
+
+    apply_response = function_app.apply_database_update(
+        FakeRequest({"update_id": update_id, "applied_by": "ops.bot"})
+    )
+    apply_payload = json.loads(apply_response.get_body().decode("utf-8"))
+
+    assert apply_response.status_code == 200
+    assert apply_payload["mode"] == "shadow"
+    assert apply_payload["applied"] is False
+    assert apply_payload["database_update"]["apply_state"] == "shadow_applied"
+    assert apply_payload["learning_evidence"]["event_type"] == "apply"
+    assert repo.count_applied_updates() == 0
+    assert repo.count_learning_evidence() >= 2
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_apply_active_mode(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+    monkeypatch.setenv("DATABASE_UPDATE_MODE", "active")
+
+    doc = StagedDocument(
+        document_id="doc-db-active",
+        original_filename="Invoice_Executed.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={"vendor_name": "Rig Services", "amount": "1200.00"},
+        classification=ClassificationResult(
+            document_type=DocumentType.INVOICE,
+            confidence=0.94,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+    )
+    repo.save_document(doc)
+    propose_payload = json.loads(
+        function_app.propose_database_update(FakeRequest({"document_id": "doc-db-active"}))
+        .get_body()
+        .decode("utf-8")
+    )
+    update_id = propose_payload["database_update"]["update_id"]
+    function_app.review_database_update(
+        FakeRequest({"update_id": update_id, "decision": "approve"})
+    )
+
+    apply_response = function_app.apply_database_update(
+        FakeRequest({"update_id": update_id, "applied_by": "ops.bot"})
+    )
+    apply_payload = json.loads(apply_response.get_body().decode("utf-8"))
+
+    assert apply_response.status_code == 200
+    assert apply_payload["mode"] == "active"
+    assert apply_payload["applied"] is True
+    assert apply_payload["database_update"]["apply_state"] == "applied"
+    assert repo.count_applied_updates() == 1
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_apply_rejects_already_applied_update(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+    monkeypatch.setenv("DATABASE_UPDATE_MODE", "active")
+
+    doc = StagedDocument(
+        document_id="doc-db-already-applied",
+        original_filename="Invoice_Executed.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={"vendor_name": "Rig Services", "amount": "1200.00"},
+        classification=ClassificationResult(
+            document_type=DocumentType.INVOICE,
+            confidence=0.94,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+    )
+    repo.save_document(doc)
+    propose_payload = json.loads(
+        function_app.propose_database_update(
+            FakeRequest({"document_id": "doc-db-already-applied"})
+        )
+        .get_body()
+        .decode("utf-8")
+    )
+    update_id = propose_payload["database_update"]["update_id"]
+    function_app.review_database_update(
+        FakeRequest({"update_id": update_id, "decision": "approve"})
+    )
+    first_apply = function_app.apply_database_update(
+        FakeRequest({"update_id": update_id, "applied_by": "ops.bot"})
+    )
+    first_payload = json.loads(first_apply.get_body().decode("utf-8"))
+
+    second_apply = function_app.apply_database_update(
+        FakeRequest({"update_id": update_id, "applied_by": "ops.bot"})
+    )
+    second_payload = json.loads(second_apply.get_body().decode("utf-8"))
+
+    assert first_apply.status_code == 200
+    assert first_payload["applied"] is True
+    assert second_apply.status_code == 409
+    assert second_payload["success"] is False
+    assert "already applied" in second_payload["error"]
+    assert repo.count_applied_updates() == 1
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_database_update_learning_eval_endpoint(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+    monkeypatch.setenv("DATABASE_UPDATE_MODE", "shadow")
+
+    doc = StagedDocument(
+        document_id="doc-db-eval",
+        original_filename="Invoice_Executed.pdf",
+        file_extension="pdf",
+        source="email",
+        source_metadata={"version_status": "final"},
+        status="classified",
+        extraction={"vendor_name": "Rig Services", "amount": "1200.00"},
+        classification=ClassificationResult(
+            document_type=DocumentType.INVOICE,
+            confidence=0.94,
+            confidence_level=ClassificationConfidence.HIGH,
+        ),
+    )
+    repo.save_document(doc)
+    propose_payload = json.loads(
+        function_app.propose_database_update(FakeRequest({"document_id": "doc-db-eval"}))
+        .get_body()
+        .decode("utf-8")
+    )
+    update_id = propose_payload["database_update"]["update_id"]
+    function_app.review_database_update(
+        FakeRequest({"update_id": update_id, "decision": "approve"})
+    )
+    function_app.apply_database_update(FakeRequest({"update_id": update_id}))
+
+    request = FakeRequest()
+    request.params = {"limit": "25"}
+    eval_response = function_app.get_learning_eval(request)
+    eval_payload = json.loads(eval_response.get_body().decode("utf-8"))
+
+    assert eval_response.status_code == 200
+    assert eval_payload["sample_size"] >= 2
+    assert "approval_rate" in eval_payload["report"]
     shutil.rmtree(temp_dir, ignore_errors=True)

@@ -94,20 +94,20 @@ class ChineseWall:
 
         return claim
 
-    def push_to_pillar1(self, claim: ExpenseClaim) -> Pillar1InvoicePayload:
+    def build_pillar1_payload(self, claim: ExpenseClaim) -> Pillar1InvoicePayload:
         """
-        Generate the sanitized payload that crosses the wall to Pillar 1.
-
-        Only APPROVED claims can be pushed.
+        Generate the sanitized payload that can cross the wall to Pillar 1.
         """
         if claim.status != ClaimStatus.APPROVED:
             raise ChineseWallViolation(
                 f"Cannot push to AP: claim is '{claim.status.value}', must be 'approved'"
             )
 
-        payload = Pillar1InvoicePayload(
+        return Pillar1InvoicePayload(
+            invoice_id=claim.claim_id,
             vendor_id=f"emp-{claim.employee_name.lower().replace(' ', '-')}",
             vendor_name=claim.vendor_name,
+            vendor_priority=2,
             amount_due=str(claim.amount),
             due_date=date.today().isoformat(),
             description=claim.description,
@@ -115,9 +115,19 @@ class ChineseWall:
             source="pillar4_expense",
         )
 
+    def mark_pushed_to_pillar1(self, claim: ExpenseClaim) -> None:
         claim.status = ClaimStatus.PUSHED_TO_AP
         self._audit_log.append(AuditEntry(claim.claim_id, "pushed_to_pillar1"))
 
+    def push_to_pillar1(self, claim: ExpenseClaim) -> Pillar1InvoicePayload:
+        """
+        Backward-compatible helper for local-only flows.
+
+        Builds the sanitized payload and records the push immediately.
+        """
+        payload = self.build_pillar1_payload(claim)
+        claim.status = ClaimStatus.PUSHED_TO_AP
+        self._audit_log.append(AuditEntry(claim.claim_id, "pushed_to_pillar1"))
         return payload
 
     def validate_no_leak(self, payload: Pillar1InvoicePayload) -> bool:

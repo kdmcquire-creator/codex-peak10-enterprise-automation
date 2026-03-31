@@ -380,6 +380,7 @@ class FakeMailboxActionGraphClient:
         *,
         update_error: Exception | None = None,
         move_error: Exception | None = None,
+        create_event_error: Exception | None = None,
     ) -> None:
         self.is_available = True
         self.mailbox_available = True
@@ -389,6 +390,7 @@ class FakeMailboxActionGraphClient:
         self.created_events: list[dict] = []
         self.update_error = update_error
         self.move_error = move_error
+        self.create_event_error = create_event_error
         self.message = {
             "id": "msg-1",
             "subject": "Can we meet next Tuesday at 2 pm?",
@@ -429,6 +431,8 @@ class FakeMailboxActionGraphClient:
         location_display_name: str = "",
         timezone_name: str = "UTC",
     ):
+        if self.create_event_error:
+            raise self.create_event_error
         payload = {
             "subject": subject,
             "body": body,
@@ -561,6 +565,20 @@ class FakeMorningBriefStore(FakeInsightStore):
                 "last_seen_at": "2026-03-24T08:00:00+00:00",
             }
         }
+        self._drafts: dict[str, dict] = {
+            "draft-1": {
+                "draft_id": "draft-1",
+                "message_id": "msg-1",
+                "subject": "Re: Waiting on next steps",
+                "body": "I can follow up with a narrower next step if that helps.",
+                "tone": "professional",
+                "to_recipients": ["silent@example.com"],
+                "approved": True,
+                "needs_review": False,
+                "sent": False,
+                "saved_at": "2026-03-20T12:00:00+00:00",
+            }
+        }
         self._event_drafts: dict[str, dict] = {
             "event-1": {
                 "event_draft_id": "event-1",
@@ -571,7 +589,12 @@ class FakeMorningBriefStore(FakeInsightStore):
                 "candidate_time_phrases": ["next week"],
                 "meeting_format": "unspecified",
                 "duration_minutes": 15,
+                "location_hint": "Zoom",
+                "review_notes": "Needs confirmation on exact date.",
+                "needs_review": True,
                 "approved": False,
+                "status": "draft",
+                "created_event": False,
                 "saved_at": "2026-03-21T12:00:00+00:00",
             }
         }
@@ -628,17 +651,9 @@ class FakeMorningBriefStore(FakeInsightStore):
         ][:limit]
 
     def query_drafts(self, *, limit: int = 200, sent_only: bool = False):
-        drafts = [
-            {
-                "draft_id": "draft-1",
-                "subject": "Re: Waiting on next steps",
-                "to_recipients": ["silent@example.com"],
-                "sent": True,
-                "sent_at": "2026-03-20T12:00:00+00:00",
-            }
-        ]
+        drafts = [dict(draft) for draft in self._drafts.values()]
         if sent_only:
-            return drafts[:limit]
+            return [draft for draft in drafts if draft.get("sent")][:limit]
         return drafts[:limit]
 
     def query_event_drafts(self, *, limit: int = 200, approved_only: bool = False):
@@ -673,6 +688,27 @@ class FakeMorningBriefStore(FakeInsightStore):
 
     def count_brief_items(self) -> int:
         return len(self._brief_items)
+
+    def save_draft(self, draft_data: dict):
+        self._drafts[draft_data["draft_id"]] = dict(draft_data)
+        return dict(self._drafts[draft_data["draft_id"]])
+
+    def get_drafts_for_message(self, message_id: str):
+        return [
+            dict(draft)
+            for draft in self._drafts.values()
+            if draft.get("message_id") == message_id
+        ]
+
+    def get_draft(self, draft_id: str, message_id: str):
+        draft = self._drafts.get(draft_id)
+        if draft and draft.get("message_id") == message_id:
+            return dict(draft)
+        return None
+
+    def find_draft_by_id(self, draft_id: str):
+        draft = self._drafts.get(draft_id)
+        return dict(draft) if draft else None
 
     def save_event_draft(self, draft_data: dict):
         self._event_drafts[draft_data["event_draft_id"]] = dict(draft_data)
@@ -889,7 +925,13 @@ def test_update_draft_finds_draft_without_message_id(monkeypatch):
     )
     monkeypatch.setattr("function_app.get_store", lambda: store)
 
-    request = FakeRequest({"approved": True, "to_recipients": ["sender@example.com"]})
+    request = FakeRequest(
+        {
+            "approved": True,
+            "to_recipients": ["sender@example.com"],
+            "approval_note": "Looks ready to send.",
+        }
+    )
     request.route_params["draft_id"] = "draft-1"
 
     response = update_draft(request)
@@ -898,8 +940,43 @@ def test_update_draft_finds_draft_without_message_id(monkeypatch):
     assert response.status_code == 200
     assert payload["draft"]["approved"] is True
     assert payload["draft"]["needs_review"] is False
+    assert payload["draft"]["status"] == "approved"
+    assert payload["draft"]["approval_note"] == "Looks ready to send."
     assert payload["draft"]["to_recipients"] == ["sender@example.com"]
     assert store.get_draft("draft-1", "msg-1")["approved"] is True
+
+
+def test_update_draft_can_mark_draft_unapproved(monkeypatch):
+    store = CosmosDataStore(connection_string="")
+    store.save_draft(
+        {
+            "draft_id": "draft-1",
+            "message_id": "msg-1",
+            "subject": "Re: Test",
+            "body": "Original",
+            "tone": "professional",
+            "approved": True,
+            "approved_by": "kmcquire",
+            "approved_at": "2026-03-27T07:00:00+00:00",
+            "needs_review": False,
+            "status": "approved",
+            "approval_note": "Looks good.",
+        }
+    )
+    monkeypatch.setattr("function_app.get_store", lambda: store)
+
+    request = FakeRequest({"approved": False, "approval_note": "Needs another pass."})
+    request.route_params["draft_id"] = "draft-1"
+
+    response = update_draft(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["draft"]["approved"] is False
+    assert payload["draft"]["needs_review"] is True
+    assert payload["draft"]["status"] == "draft"
+    assert payload["draft"]["approved_by"] == ""
+    assert payload["draft"]["approval_note"] == "Needs another pass."
 
 
 def test_send_draft_sends_reply_and_persists_state(monkeypatch):
@@ -942,6 +1019,57 @@ def test_send_draft_sends_reply_and_persists_state(monkeypatch):
             "content_type": "Text",
         }
     ]
+
+
+def test_send_draft_resolves_brief_item_when_send_completes(monkeypatch):
+    monkeypatch.setenv("OUTBOUND_EMAIL_MODE", "send")
+    store = FakeMorningBriefStore()
+    store.save_brief_item(
+        {
+            "id": "ctx-draft-send",
+            "item_id": "ctx-draft-send",
+            "item_kind": "follow_up",
+            "type": "awaiting_response",
+            "title": "Reply to sender",
+            "message": "A reply draft is ready.",
+            "suggested_action": "Approve and send the draft.",
+            "priority": "medium",
+            "state": "open",
+            "recipient": "sender@example.com",
+            "source_message_id": "msg-1",
+            "first_seen_at": "2026-03-25T08:00:00+00:00",
+            "last_seen_at": "2026-03-25T08:00:00+00:00",
+        }
+    )
+    store.save_draft(
+        {
+            "draft_id": "draft-1",
+            "message_id": "msg-1",
+            "subject": "Re: Test",
+            "body": "Thanks for the note.",
+            "tone": "professional",
+            "approved": True,
+            "approved_by": "kmcquire",
+            "needs_review": False,
+            "to_recipients": ["sender@example.com"],
+        }
+    )
+    graph_client = FakeDraftGraphClient()
+    monkeypatch.setattr("function_app.get_store", lambda: store)
+    monkeypatch.setattr("function_app.get_graph_client", lambda: graph_client)
+
+    request = FakeRequest({"brief_item_id": "ctx-draft-send", "requested_by": "kmcquire"})
+    request.route_params["draft_id"] = "draft-1"
+
+    response = send_draft(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["sent"] is True
+    assert payload["resolved_item"]["item_id"] == "ctx-draft-send"
+    assert payload["resolved_item"]["state"] == "resolved"
+    assert payload["resolved_item"]["reason_code"] == "replied"
+    assert payload["resolved_item"]["reason_label"] == "Reply drafted or sent"
 
 
 def test_send_draft_returns_error_when_no_recipients_can_be_resolved(monkeypatch):
@@ -1327,6 +1455,11 @@ def test_get_brief_item_context_returns_matching_messages_and_drafts(monkeypatch
     assert payload["messages"][0]["message_id"] in {"msg-1", "msg-2"}
     assert any(message["matched_on"] in {"source_message", "thread", "contact"} for message in payload["messages"])
     assert any(draft["matched_on"] == "recipient" for draft in payload["drafts"])
+    assert payload["drafts"][0]["available_actions"] == [
+        {"action": "send", "label": "Send draft"},
+        {"action": "unapprove", "label": "Mark unapproved"},
+    ]
+    assert payload["drafts"][0]["status"] == "approved"
 
 
 def test_get_brief_item_context_returns_matching_event_drafts(monkeypatch):
@@ -1362,6 +1495,10 @@ def test_get_brief_item_context_returns_matching_event_drafts(monkeypatch):
     assert payload["summary"]["event_draft_count"] == 1
     assert payload["event_drafts"][0]["matched_on"] == "source_message"
     assert payload["event_drafts"][0]["title"] == "Can we meet next week?"
+    assert payload["event_drafts"][0]["status"] == "draft"
+    assert payload["event_drafts"][0]["available_actions"] == [
+        {"action": "approve", "label": "Approve draft"}
+    ]
 
 
 def test_act_on_brief_item_archives_and_resolves(monkeypatch):
@@ -1639,6 +1776,32 @@ def test_update_event_draft_approves_persisted_record(monkeypatch):
     assert payload["event_draft"]["status"] == "approved"
 
 
+def test_update_event_draft_can_mark_record_unapproved(monkeypatch):
+    store = FakeMorningBriefStore()
+    event_draft = store.get_event_draft("event-1", "msg-5")
+    assert event_draft is not None
+    event_draft["approved"] = True
+    event_draft["approved_by"] = "kmcquire"
+    event_draft["approved_at"] = "2026-03-27T07:00:00+00:00"
+    event_draft["needs_review"] = False
+    event_draft["status"] = "approved"
+    store.save_event_draft(event_draft)
+    monkeypatch.setattr("function_app.get_store", lambda: store)
+
+    request = FakeRequest({"source_message_id": "msg-5", "approved": False, "review_notes": "Needs clarification."})
+    request.route_params["event_draft_id"] = "event-1"
+
+    response = update_event_draft(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["event_draft"]["approved"] is False
+    assert payload["event_draft"]["approved_by"] == ""
+    assert payload["event_draft"]["needs_review"] is True
+    assert payload["event_draft"]["status"] == "draft"
+    assert payload["event_draft"]["review_notes"] == "Needs clarification."
+
+
 def test_create_event_from_draft_requires_approval(monkeypatch):
     store = FakeMorningBriefStore()
     graph_client = FakeMailboxActionGraphClient()
@@ -1658,6 +1821,23 @@ def test_create_event_from_draft_requires_approval(monkeypatch):
 def test_create_event_from_draft_persists_created_event_metadata(monkeypatch):
     store = FakeMorningBriefStore()
     graph_client = FakeMailboxActionGraphClient()
+    store.save_brief_item(
+        {
+            "id": "ctx-event-create",
+            "item_id": "ctx-event-create",
+            "item_kind": "follow_up",
+            "type": "calendar_follow_up",
+            "title": "Scheduling thread needs next step",
+            "message": "A saved event draft is ready for approval.",
+            "suggested_action": "Approve it and create the calendar event.",
+            "priority": "medium",
+            "state": "open",
+            "source_message_id": "msg-5",
+            "source_subject": "Can we meet next week?",
+            "first_seen_at": "2026-03-25T08:00:00+00:00",
+            "last_seen_at": "2026-03-25T08:00:00+00:00",
+        }
+    )
     approved = store.get_event_draft("event-1", "msg-5")
     assert approved is not None
     approved["approved"] = True
@@ -1674,6 +1854,7 @@ def test_create_event_from_draft_persists_created_event_metadata(monkeypatch):
         {
             "source_message_id": "msg-5",
             "requested_by": "kmcquire",
+            "brief_item_id": "ctx-event-create",
             "start_at": "2026-04-07T14:00:00+00:00",
             "attendees": ["counterparty@example.com"],
         }
@@ -1687,9 +1868,63 @@ def test_create_event_from_draft_persists_created_event_metadata(monkeypatch):
     assert payload["success"] is True
     assert payload["event_draft"]["created_event"] is True
     assert payload["event_draft"]["created_event_id"] == "event-123"
+    assert payload["event_draft"]["created_event_web_link"] == "https://example.com/event-123"
+    assert payload["event_draft"]["scheduled_start_at"] == "2026-04-07T14:00:00+00:00"
     assert payload["event_draft"]["status"] == "event_created"
     assert payload["created_event"]["web_link"] == "https://example.com/event-123"
+    assert payload["created_event"]["start_at"] == "2026-04-07T14:00:00+00:00"
+    assert payload["resolved_item"]["item_id"] == "ctx-event-create"
+    assert payload["resolved_item"]["state"] == "resolved"
+    assert payload["resolved_item"]["reason_code"] == "scheduled"
+    assert payload["resolved_item"]["reason_label"] == "Calendar event created"
     assert graph_client.created_events[0]["subject"] == "Can we meet next week?"
+
+
+def test_create_event_from_draft_retries_after_access_denied(monkeypatch):
+    store = FakeMorningBriefStore()
+    first_client = FakeMailboxActionGraphClient(
+        create_event_error=GraphRequestError(
+            status_code=403,
+            code="ErrorAccessDenied",
+            message="Access is denied. Check credentials and try again.",
+            url="https://graph.microsoft.com/v1.0/users/automation@peak10.test/events",
+        )
+    )
+    second_client = FakeMailboxActionGraphClient()
+    approved = store.get_event_draft("event-1", "msg-5")
+    assert approved is not None
+    approved["approved"] = True
+    approved["approved_by"] = "kmcquire"
+    approved["approved_at"] = "2026-03-27T07:00:00+00:00"
+    approved["needs_review"] = False
+    approved["status"] = "approved"
+    store.save_event_draft(approved)
+
+    clients = iter([first_client, second_client])
+    reset_calls: list[str] = []
+    monkeypatch.setattr("function_app.get_store", lambda: store)
+    monkeypatch.setattr("function_app.get_graph_client", lambda: next(clients))
+    monkeypatch.setattr("function_app.reset_graph_client", lambda: reset_calls.append("reset"))
+
+    request = FakeRequest(
+        {
+            "source_message_id": "msg-5",
+            "requested_by": "kmcquire",
+            "start_at": "2026-04-07T14:00:00+00:00",
+            "attendees": ["counterparty@example.com"],
+        }
+    )
+    request.route_params["event_draft_id"] = "event-1"
+
+    response = create_event_from_draft(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert reset_calls == ["reset"]
+    assert first_client.created_events == []
+    assert second_client.created_events[0]["subject"] == "Can we meet next week?"
+    assert payload["event_draft"]["created_event"] is True
 
 
 def test_brief_review_page_returns_html():
@@ -1709,6 +1944,15 @@ def test_brief_review_page_returns_html():
     assert "Draft event" in payload
     assert "Event draft preview" in payload
     assert "Event drafts" in payload
+    assert "updateDraft" in payload
+    assert "sendDraft" in payload
+    assert "noteForDraft" in payload
+    assert "updateEventDraft" in payload
+    assert "createEventFromDraft" in payload
+    assert "reviewNoteForEventDraft" in payload
+    assert "sortItemsByRecency" in payload
+    assert "Latest activity" in payload
+    assert "Status:" in payload
     assert "Latest action" in payload
     assert "example-code" in payload
 

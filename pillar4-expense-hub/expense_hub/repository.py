@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import threading
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -22,13 +23,41 @@ from .serialization import (
 DEFAULT_DB_NAME = "expense-hub.db"
 
 
+def _preferred_data_dir() -> Path:
+    return Path(os.getcwd()) / ".data"
+
+
+def _fallback_data_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "peak10-expense-hub"
+
+
+def _ensure_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _default_data_dir() -> Path:
+    preferred = _preferred_data_dir()
+    if _ensure_writable_dir(preferred):
+        return preferred
+
+    fallback = _fallback_data_dir()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 def _default_db_path() -> str:
     configured = os.environ.get("EXPENSE_HUB_DB_PATH")
     if configured:
         return configured
 
-    data_dir = Path(os.getcwd()) / ".data"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir = _default_data_dir()
     return str(data_dir / DEFAULT_DB_NAME)
 
 

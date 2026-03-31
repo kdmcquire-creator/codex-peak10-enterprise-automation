@@ -43,7 +43,7 @@ from email_intel.serialization import (
     serialize_filing_recommendation,
 )
 from email_intel.cosmos_client import get_store
-from email_intel.graph_client import GraphRequestError, get_graph_client
+from email_intel.graph_client import GraphRequestError, get_graph_client, reset_graph_client
 from email_intel.ingestion_service import MailboxIngestionService
 from email_intel.briefing import build_morning_brief, present_brief_item
 from email_intel.insights import build_growth_nudges
@@ -727,6 +727,8 @@ def update_draft(req: func.HttpRequest) -> func.HttpResponse:
         existing["cc_recipients"] = _normalize_email_addresses(
             body.get("cc_recipients", [])
         )
+    if "approval_note" in body:
+        existing["approval_note"] = str(body.get("approval_note", "")).strip()
     if "approved" in body:
         existing["approved"] = bool(body["approved"])
         existing["approved_at"] = (
@@ -740,6 +742,12 @@ def update_draft(req: func.HttpRequest) -> func.HttpResponse:
             else ""
         )
     existing["needs_review"] = not existing.get("approved", False)
+    if existing.get("sent"):
+        existing["status"] = "sent"
+    elif existing.get("approved"):
+        existing["status"] = "approved"
+    else:
+        existing["status"] = "draft"
 
     persisted, warnings = _persist_with_warning(
         lambda: store.save_draft(existing),
@@ -820,6 +828,8 @@ def send_draft(req: func.HttpRequest) -> func.HttpResponse:
     delivery_mode = _get_outbound_email_mode(
         body.get("delivery_mode") or body.get("mode")
     )
+    if "approval_note" in body:
+        existing["approval_note"] = str(body.get("approval_note", "")).strip()
 
     allowed, block_reason = _evaluate_outbound_recipients(
         [*to_recipients, *cc_recipients]
@@ -837,6 +847,7 @@ def send_draft(req: func.HttpRequest) -> func.HttpResponse:
     existing["last_send_attempted_by"] = requested_by or approved_by
     existing["delivery_mode"] = delivery_mode
     existing["send_block_reason"] = ""
+    existing["status"] = "approved"
 
     if not allowed:
         existing["send_block_reason"] = block_reason
@@ -898,6 +909,7 @@ def send_draft(req: func.HttpRequest) -> func.HttpResponse:
         existing["sent"] = True
         existing["sent_at"] = timestamp
         existing["sent_by"] = requested_by or approved_by
+        existing["status"] = "sent"
         sent = True
     else:
         sent = False
@@ -909,6 +921,30 @@ def send_draft(req: func.HttpRequest) -> func.HttpResponse:
         log_args=(draft_id, message_id),
     )
 
+    resolved_item = None
+    brief_item_id = str(body.get("brief_item_id", "")).strip()
+    if sent and brief_item_id and hasattr(store, "find_brief_item_by_id"):
+        brief_item = store.find_brief_item_by_id(brief_item_id)
+        if brief_item:
+            brief_item["state"] = "resolved"
+            brief_item["updated_at"] = timestamp
+            brief_item["state_changed_at"] = timestamp
+            brief_item["reason_code"] = "replied"
+            brief_item["reason_detail"] = str(body.get("notes", "")).strip()
+            if requested_by or approved_by:
+                brief_item["updated_by"] = requested_by or approved_by
+            try:
+                store.save_brief_item(brief_item)
+                resolved_item = present_brief_item(brief_item)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve brief item %s after sending draft %s: %s",
+                    brief_item_id,
+                    draft_id,
+                    exc,
+                )
+                warnings.append("brief_item_resolve_failed")
+
     return func.HttpResponse(
         body=json.dumps(
             {
@@ -917,6 +953,7 @@ def send_draft(req: func.HttpRequest) -> func.HttpResponse:
                 "persisted": persisted,
                 "delivery_mode": delivery_mode,
                 "draft": existing,
+                "resolved_item": resolved_item,
                 "warnings": warnings,
             }
         ),
@@ -992,6 +1029,8 @@ def update_event_draft(req: func.HttpRequest) -> func.HttpResponse:
         "suggested_action",
         "review_notes",
         "status",
+        "scheduled_start_at",
+        "scheduled_end_at",
     ):
         if field in body:
             existing[field] = body[field]
@@ -1013,6 +1052,8 @@ def update_event_draft(req: func.HttpRequest) -> func.HttpResponse:
         existing["status"] = "approved"
     elif existing.get("approved"):
         existing["status"] = "approved"
+    elif not existing.get("created_event"):
+        existing["status"] = "draft"
 
     persisted, warnings = _persist_with_warning(
         lambda: store.save_event_draft(existing),
@@ -1123,20 +1164,43 @@ def create_event_from_draft(req: func.HttpRequest) -> func.HttpResponse:
             location_display_name=location_hint,
         )
     except GraphRequestError as exc:
-        details = _graph_error_details(exc)
-        logger.warning("Failed to create calendar event from draft %s: %s", event_draft_id, details)
-        return func.HttpResponse(
-            body=json.dumps(
-                {
-                    "success": False,
-                    "error": f"Failed to create calendar event: {exc}",
-                    "graph_error": details,
-                    "event_draft_id": event_draft_id,
-                }
-            ),
-            mimetype="application/json",
-            status_code=502,
-        )
+        if _should_retry_graph_auth_error(exc):
+            logger.info(
+                "Retrying calendar event creation for draft %s after resetting cached Graph token",
+                event_draft_id,
+            )
+            reset_graph_client()
+            graph = get_graph_client()
+            try:
+                created = graph.create_calendar_event(
+                    subject=str(existing.get("title", "")).strip() or "Scheduling follow-up",
+                    body=description,
+                    attendees=attendees,
+                    start_iso=schedule["start_at"],
+                    end_iso=schedule["end_at"],
+                    location_display_name=location_hint,
+                )
+            except GraphRequestError as retry_exc:
+                exc = retry_exc
+            else:
+                exc = None
+        if exc is None:
+            pass
+        else:
+            details = _graph_error_details(exc)
+            logger.warning("Failed to create calendar event from draft %s: %s", event_draft_id, details)
+            return func.HttpResponse(
+                body=json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Failed to create calendar event: {exc}",
+                        "graph_error": details,
+                        "event_draft_id": event_draft_id,
+                    }
+                ),
+                mimetype="application/json",
+                status_code=502,
+            )
 
     now_text = datetime.now(timezone.utc).isoformat()
     existing["created_event"] = True
@@ -1158,6 +1222,30 @@ def create_event_from_draft(req: func.HttpRequest) -> func.HttpResponse:
         log_args=(event_draft_id,),
     )
 
+    resolved_item = None
+    brief_item_id = str(body.get("brief_item_id", "")).strip()
+    if brief_item_id and hasattr(store, "find_brief_item_by_id"):
+        brief_item = store.find_brief_item_by_id(brief_item_id)
+        if brief_item:
+            brief_item["state"] = "resolved"
+            brief_item["updated_at"] = now_text
+            brief_item["state_changed_at"] = now_text
+            brief_item["reason_code"] = "scheduled"
+            brief_item["reason_detail"] = str(body.get("notes", "")).strip()
+            if requested_by:
+                brief_item["updated_by"] = requested_by
+            try:
+                store.save_brief_item(brief_item)
+                resolved_item = present_brief_item(brief_item)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve brief item %s after creating calendar event from draft %s: %s",
+                    brief_item_id,
+                    event_draft_id,
+                    exc,
+                )
+                warnings.append("brief_item_resolve_failed")
+
     return func.HttpResponse(
         body=json.dumps(
             {
@@ -1171,6 +1259,7 @@ def create_event_from_draft(req: func.HttpRequest) -> func.HttpResponse:
                     "end_at": existing["scheduled_end_at"],
                     "attendees": attendees,
                 },
+                "resolved_item": resolved_item,
                 "warnings": warnings,
             }
         ),
@@ -1938,6 +2027,10 @@ def _is_missing_graph_item_error(exc: GraphRequestError) -> bool:
     return exc.status_code == 404 and exc.code == "ErrorItemNotFound"
 
 
+def _should_retry_graph_auth_error(exc: GraphRequestError) -> bool:
+    return exc.status_code in {401, 403} and exc.code in {"InvalidAuthenticationToken", "ErrorAccessDenied"}
+
+
 def _graph_message_subject(message: dict[str, object]) -> str:
     return str(message.get("subject", "")).strip()
 
@@ -2144,6 +2237,8 @@ def _create_and_persist_event_draft(
         or str(guidance.get("reasoning", "")).strip(),
         approved=False,
         approved_by=approved_by,
+        scheduled_start_at=str(event_draft_payload.get("scheduled_start_at", "")).strip() or None,
+        scheduled_end_at=str(event_draft_payload.get("scheduled_end_at", "")).strip() or None,
     )
     draft_dict = serialize_event_draft(event_draft)
     store = get_store()
@@ -2247,33 +2342,108 @@ def _serialize_brief_context_message(triage_item: dict[str, object], *, matched_
 
 
 def _serialize_brief_context_draft(draft: dict[str, object], *, matched_on: str) -> dict[str, object]:
-    return {
+    sent = bool(draft.get("sent"))
+    approved = bool(draft.get("approved"))
+    payload = {
         "draft_id": str(draft.get("draft_id", "")).strip(),
         "message_id": str(draft.get("message_id", "")).strip(),
         "subject": str(draft.get("subject", "")).strip(),
+        "body": str(draft.get("body", "")).strip(),
+        "tone": str(draft.get("tone", "")).strip(),
+        "confidence": float(draft.get("confidence", 0.0) or 0.0),
+        "needs_review": bool(draft.get("needs_review", True)),
+        "approved": approved,
+        "approved_at": str(draft.get("approved_at", "")).strip(),
+        "approved_by": str(draft.get("approved_by", "")).strip(),
         "to_recipients": _normalize_email_addresses(draft.get("to_recipients", [])),
-        "sent": bool(draft.get("sent")),
+        "cc_recipients": _normalize_email_addresses(draft.get("cc_recipients", [])),
+        "sent": sent,
         "saved_at": str(draft.get("saved_at", "")).strip(),
         "sent_at": str(draft.get("sent_at", "")).strip(),
+        "sent_by": str(draft.get("sent_by", "")).strip(),
+        "delivery_mode": str(draft.get("delivery_mode", "")).strip(),
+        "last_send_attempt_at": str(draft.get("last_send_attempt_at", "")).strip(),
+        "last_send_attempted_by": str(draft.get("last_send_attempted_by", "")).strip(),
+        "send_block_reason": str(draft.get("send_block_reason", "")).strip(),
+        "approval_note": str(draft.get("approval_note", "")).strip(),
+        "status": str(
+            draft.get("status")
+            or ("sent" if sent else "approved" if approved else "draft")
+        ).strip(),
         "matched_on": matched_on,
     }
+    payload["available_actions"] = _build_draft_actions(payload)
+    return payload
+
+
+def _build_draft_actions(draft: dict[str, object]) -> list[dict[str, str]]:
+    if bool(draft.get("sent")):
+        return []
+    actions: list[dict[str, str]] = []
+    if not bool(draft.get("approved")):
+        actions.append({"action": "approve", "label": "Approve draft"})
+    else:
+        actions.append({"action": "send", "label": "Send draft"})
+        actions.append({"action": "unapprove", "label": "Mark unapproved"})
+    return actions
 
 
 def _serialize_brief_context_event_draft(event_draft: dict[str, object], *, matched_on: str) -> dict[str, object]:
-    return {
+    payload = {
         "event_draft_id": str(event_draft.get("event_draft_id", "")).strip(),
         "source_message_id": str(event_draft.get("source_message_id", "")).strip(),
         "source_subject": str(event_draft.get("source_subject", "")).strip(),
+        "thread_key": str(event_draft.get("thread_key", "")).strip(),
         "title": str(event_draft.get("title", "")).strip(),
         "attendees": _normalize_email_addresses(event_draft.get("attendees", [])),
         "candidate_time_phrases": _normalize_string_list(event_draft.get("candidate_time_phrases", [])),
         "meeting_format": str(event_draft.get("meeting_format", "")).strip(),
         "duration_minutes": int(event_draft.get("duration_minutes", 0) or 0),
+        "location_hint": str(event_draft.get("location_hint", "")).strip(),
+        "summary": str(event_draft.get("summary", "")).strip(),
+        "description": str(event_draft.get("description", "")).strip(),
+        "suggested_action": str(event_draft.get("suggested_action", "")).strip(),
+        "review_notes": _normalize_review_notes(event_draft.get("review_notes", "")),
+        "needs_review": bool(event_draft.get("needs_review", True)),
+        "confidence": float(event_draft.get("confidence", 0.0) or 0.0),
         "approved": bool(event_draft.get("approved")),
+        "approved_by": str(event_draft.get("approved_by", "")).strip(),
+        "status": str(event_draft.get("status", "")).strip() or "draft",
+        "created_event": bool(event_draft.get("created_event")),
+        "created_event_at": str(event_draft.get("created_event_at", "")).strip(),
+        "created_event_by": str(event_draft.get("created_event_by", "")).strip(),
+        "created_event_id": str(event_draft.get("created_event_id", "")).strip(),
+        "created_event_web_link": str(event_draft.get("created_event_web_link", "")).strip(),
+        "scheduled_start_at": str(event_draft.get("scheduled_start_at", "")).strip(),
+        "scheduled_end_at": str(event_draft.get("scheduled_end_at", "")).strip(),
         "saved_at": str(event_draft.get("saved_at", "")).strip(),
         "approved_at": str(event_draft.get("approved_at", "")).strip(),
         "matched_on": matched_on,
     }
+    payload["available_actions"] = _build_event_draft_actions(payload)
+    return payload
+
+
+def _normalize_review_notes(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple, set)):
+        return " | ".join(str(item).strip() for item in value if str(item).strip())
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _build_event_draft_actions(event_draft: dict[str, object]) -> list[dict[str, str]]:
+    if bool(event_draft.get("created_event")):
+        return []
+    actions: list[dict[str, str]] = []
+    if not bool(event_draft.get("approved")):
+        actions.append({"action": "approve", "label": "Approve draft"})
+    if bool(event_draft.get("approved")):
+        actions.append({"action": "create_event", "label": "Create event"})
+        actions.append({"action": "unapprove", "label": "Mark unapproved"})
+    return actions
 
 
 def _resolve_event_draft_schedule(

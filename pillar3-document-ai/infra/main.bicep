@@ -11,6 +11,16 @@ param environment string = 'dev'
 
 param baseName string = 'peak10docai'
 
+@description('Hosting plan SKU for the Linux Function App')
+@allowed([
+  'Y1'
+  'B1'
+])
+param hostingPlanSku string = 'B1'
+
+@description('Existing App Service Plan resource ID to reuse (optional)')
+param existingAppServicePlanId string = ''
+
 var suffix = '${baseName}${environment}'
 var functionAppName = 'func-${suffix}'
 var storageName = 'st${replace(suffix, '-', '')}'
@@ -18,6 +28,7 @@ var appInsightsName = 'ai-${suffix}'
 var appServicePlanName = 'plan-${suffix}'
 var keyVaultName = 'kv-${suffix}'
 var cogServicesName = 'cog-${suffix}'
+var hostingPlanTier = hostingPlanSku == 'Y1' ? 'Dynamic' : 'Basic'
 
 // ---------------------------------------------------------------------------
 // Storage Account
@@ -67,12 +78,12 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 // App Service Plan
 // ---------------------------------------------------------------------------
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
+resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = if (empty(existingAppServicePlanId)) {
   name: appServicePlanName
   location: location
   sku: {
-    name: environment == 'prod' ? 'B1' : 'Y1'
-    tier: environment == 'prod' ? 'Basic' : 'Dynamic'
+    name: hostingPlanSku
+    tier: hostingPlanTier
   }
   properties: { reserved: true }
 }
@@ -118,7 +129,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   kind: 'functionapp,linux'
   identity: { type: 'SystemAssigned' }
   properties: {
-    serverFarmId: appServicePlan.id
+    serverFarmId: empty(existingAppServicePlanId) ? appServicePlan.id : existingAppServicePlanId
     httpsOnly: true
     siteConfig: {
       pythonVersion: '3.11'
@@ -128,6 +139,8 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'python' }
         { name: 'AzureWebJobsFeatureFlags', value: 'EnableWorkerIndexing' }
+        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
+        { name: 'ENABLE_ORYX_BUILD', value: 'true' }
         { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'KEY_VAULT_URI', value: keyVault.properties.vaultUri }

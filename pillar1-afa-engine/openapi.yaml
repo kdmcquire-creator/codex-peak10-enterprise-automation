@@ -20,6 +20,61 @@ servers:
     description: Local development
 
 paths:
+  /invoices/intake:
+    post:
+      operationId: intakeInvoice
+      summary: Queue a sanitized invoice from an upstream pillar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Pillar4ExpenseClaim"
+      responses:
+        "201":
+          description: Intake invoice queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  invoice:
+                    $ref: "#/components/schemas/Invoice"
+                  queue_count:
+                    type: integer
+        "400":
+          description: Invalid intake payload
+    get:
+      operationId: listIntakeInvoices
+      summary: List recently queued intake invoices
+      parameters:
+        - in: query
+          name: source
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Recently queued intake invoices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                  invoices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invoice"
   /allocations/run:
     post:
       operationId: runAllocation
@@ -332,11 +387,19 @@ components:
       type: object
       required: [vendor_id, vendor_name, amount_due, due_date, receipt_ref]
       properties:
+        invoice_id:
+          type: string
+          description: Optional upstream claim or invoice identifier used for queue idempotency.
         vendor_id:
           type: string
           description: Vendor ID (e.g., the employee or merchant)
         vendor_name:
           type: string
+        vendor_priority:
+          type: integer
+          enum: [1, 2, 3, 4]
+          default: 2
+          description: Optional priority override. Defaults to High for expense reimbursements.
         amount_due:
           type: string
         due_date:

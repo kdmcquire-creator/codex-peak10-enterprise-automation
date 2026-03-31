@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from email_intel.briefing import build_morning_brief
+from email_intel.briefing import build_morning_brief, present_brief_item
 
 
 def test_build_morning_brief_surfaces_projects_follow_ups_and_protected_time():
@@ -225,6 +225,29 @@ def test_build_morning_brief_groups_related_subject_families_into_one_project():
     assert brief["ongoing_projects"][0]["days_active"] == 2
     assert "Decide the narrowest concrete next step" in brief["ongoing_projects"][0]["next_decision"]
     assert len(brief["ongoing_projects"][0]["related_subjects"]) >= 2
+
+
+def test_present_brief_item_surfaces_activity_and_status_summary():
+    presented = present_brief_item(
+        {
+            "id": "resolved-1",
+            "item_id": "resolved-1",
+            "item_kind": "follow_up",
+            "type": "calendar_follow_up",
+            "title": "Scheduling thread needs a decision",
+            "message": "A scheduling item was already handled.",
+            "suggested_action": "No further action needed.",
+            "priority": "medium",
+            "state": "resolved",
+            "reason_code": "scheduled",
+            "state_changed_at": "2026-03-27T20:29:48.528303+00:00",
+        }
+    )
+
+    assert presented["activity_at"] == "2026-03-27T20:29:48.528303+00:00"
+    assert presented["activity_label"] == "Cleared"
+    assert presented["status_summary"] == "Calendar event created"
+    assert presented["reason_label"] == "Calendar event created"
 
 
 def test_build_morning_brief_merges_same_sender_subject_family_across_thread_keys():

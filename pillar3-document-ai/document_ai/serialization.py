@@ -9,9 +9,13 @@ from .models import (
     ClassificationConfidence,
     ClassificationResult,
     CorrectionLog,
+    DatabaseUpdateApplyState,
+    DatabaseUpdateProposal,
+    DatabaseUpdateStatus,
     DocumentType,
     ExtractedMetadata,
     FilingRecommendation,
+    LearningEvidence,
     StagedDocument,
 )
 
@@ -92,6 +96,55 @@ def serialize_correction(c: CorrectionLog) -> dict[str, Any]:
         "corrected_by": c.corrected_by,
         "corrected_at": c.corrected_at.isoformat(),
         "notes": c.notes,
+    }
+
+
+def serialize_database_update_proposal(p: DatabaseUpdateProposal) -> dict[str, Any]:
+    return {
+        "update_id": p.update_id,
+        "document_id": p.document_id,
+        "document_type": p.document_type.value,
+        "version_status": p.version_status,
+        "target_table": p.target_table,
+        "operation": p.operation,
+        "proposed_field_updates": p.proposed_field_updates,
+        "approved_field_updates": p.approved_field_updates,
+        "effective_field_updates": p.effective_field_updates,
+        "confidence": p.confidence,
+        "trust_score": p.trust_score,
+        "policy_checks": p.policy_checks,
+        "status": p.status.value,
+        "apply_state": p.apply_state.value,
+        "apply_mode": p.apply_mode,
+        "applied_at": p.applied_at,
+        "apply_reference": p.apply_reference,
+        "apply_error": p.apply_error,
+        "proposed_at": p.proposed_at.isoformat(),
+        "reviewed_at": p.reviewed_at,
+        "reviewed_by": p.reviewed_by,
+        "review_notes": p.review_notes,
+        "source_summary": p.source_summary,
+    }
+
+
+def serialize_learning_evidence(e: LearningEvidence) -> dict[str, Any]:
+    return {
+        "evidence_id": e.evidence_id,
+        "update_id": e.update_id,
+        "document_id": e.document_id,
+        "document_type": e.document_type.value,
+        "target_table": e.target_table,
+        "event_type": e.event_type,
+        "decision": e.decision,
+        "trust_score": e.trust_score,
+        "proposed_field_updates": e.proposed_field_updates,
+        "final_field_updates": e.final_field_updates,
+        "edited_fields": e.edited_fields,
+        "actor": e.actor,
+        "notes": e.notes,
+        "apply_mode": e.apply_mode,
+        "outcome": e.outcome,
+        "captured_at": e.captured_at.isoformat(),
     }
 
 
@@ -179,4 +232,80 @@ def deserialize_correction(data: dict[str, Any]) -> CorrectionLog:
         if data.get("corrected_at")
         else datetime.now(timezone.utc),
         notes=data.get("notes", ""),
+    )
+
+
+def deserialize_database_update_proposal(data: dict[str, Any]) -> DatabaseUpdateProposal:
+    try:
+        doc_type = DocumentType(data.get("document_type", DocumentType.UNKNOWN.value))
+    except ValueError:
+        doc_type = DocumentType.UNKNOWN
+
+    try:
+        status = DatabaseUpdateStatus(
+            data.get("status", DatabaseUpdateStatus.PENDING_APPROVAL.value)
+        )
+    except ValueError:
+        status = DatabaseUpdateStatus.PENDING_APPROVAL
+
+    try:
+        apply_state = DatabaseUpdateApplyState(
+            data.get("apply_state", DatabaseUpdateApplyState.PENDING.value)
+        )
+    except ValueError:
+        apply_state = DatabaseUpdateApplyState.PENDING
+
+    return DatabaseUpdateProposal(
+        update_id=data.get("update_id", ""),
+        document_id=data.get("document_id", ""),
+        document_type=doc_type,
+        version_status=str(data.get("version_status", "unknown")),
+        target_table=str(data.get("target_table", "document_registry")),
+        operation=str(data.get("operation", "upsert")),
+        proposed_field_updates=data.get("proposed_field_updates", {}),
+        approved_field_updates=data.get("approved_field_updates", {}),
+        confidence=float(data.get("confidence", 0.0)),
+        trust_score=float(data.get("trust_score", 0.0)),
+        policy_checks=data.get("policy_checks", {}),
+        status=status,
+        apply_state=apply_state,
+        apply_mode=str(data.get("apply_mode", "shadow")),
+        applied_at=data.get("applied_at"),
+        apply_reference=str(data.get("apply_reference", "")),
+        apply_error=str(data.get("apply_error", "")),
+        proposed_at=datetime.fromisoformat(data["proposed_at"])
+        if data.get("proposed_at")
+        else datetime.now(timezone.utc),
+        reviewed_at=data.get("reviewed_at"),
+        reviewed_by=data.get("reviewed_by", ""),
+        review_notes=data.get("review_notes", ""),
+        source_summary=data.get("source_summary", {}),
+    )
+
+
+def deserialize_learning_evidence(data: dict[str, Any]) -> LearningEvidence:
+    try:
+        doc_type = DocumentType(data.get("document_type", DocumentType.UNKNOWN.value))
+    except ValueError:
+        doc_type = DocumentType.UNKNOWN
+
+    return LearningEvidence(
+        evidence_id=data.get("evidence_id", ""),
+        update_id=data.get("update_id", ""),
+        document_id=data.get("document_id", ""),
+        document_type=doc_type,
+        target_table=data.get("target_table", ""),
+        event_type=data.get("event_type", "review"),
+        decision=data.get("decision", ""),
+        trust_score=float(data.get("trust_score", 0.0)),
+        proposed_field_updates=data.get("proposed_field_updates", {}),
+        final_field_updates=data.get("final_field_updates", {}),
+        edited_fields=[str(item) for item in data.get("edited_fields", [])],
+        actor=data.get("actor", ""),
+        notes=data.get("notes", ""),
+        apply_mode=data.get("apply_mode", ""),
+        outcome=data.get("outcome", ""),
+        captured_at=datetime.fromisoformat(data["captured_at"])
+        if data.get("captured_at")
+        else datetime.now(timezone.utc),
     )

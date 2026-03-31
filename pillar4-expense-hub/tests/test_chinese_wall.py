@@ -88,7 +88,9 @@ class TestPushToPillar1:
         claim.status = ClaimStatus.APPROVED
 
         payload = wall.push_to_pillar1(claim)
+        assert payload.invoice_id == claim.claim_id
         assert payload.vendor_name == "Halliburton"
+        assert payload.vendor_priority == 2
         assert payload.amount_due == "5000.00"
         assert payload.source == "pillar4_expense"
         assert claim.status == ClaimStatus.PUSHED_TO_AP

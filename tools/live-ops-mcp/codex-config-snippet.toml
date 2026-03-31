@@ -1,0 +1,3 @@
+[mcp_servers.peak10_live_ops]
+command = "C:\\Users\\kdmcq\\Projects\\Peak10-enterprise-automation\\.tools\\python314\\python.exe"
+args = ["C:\\Users\\kdmcq\\Projects\\Peak10-enterprise-automation\\tools\\live-ops-mcp\\server.py"]
