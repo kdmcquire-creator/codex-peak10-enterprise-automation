@@ -16,6 +16,8 @@ export interface HeroStat {
   label: string;
   value: string;
   tone: QueueTone;
+  workspaceId?: WorkspaceId;
+  href?: string;
 }
 
 export interface TimelineEntry {
@@ -46,6 +48,10 @@ export interface WorkspaceDetail {
   queueTone: QueueTone;
   primaryAction: string;
   secondaryAction: string;
+  primaryActionHref?: string;
+  secondaryActionHref?: string;
+  primaryActionWorkspaceId?: WorkspaceId;
+  secondaryActionWorkspaceId?: WorkspaceId;
   sections: WorkspaceSection[];
 }
 
@@ -55,6 +61,7 @@ export interface PillarHealth {
   status: PillarStatus;
   latencyMs: number;
   summary: string;
+  href?: string;
 }
 
 export interface ApprovalRecord {
@@ -64,6 +71,7 @@ export interface ApprovalRecord {
   status: string;
   owner: string;
   updatedAt: string;
+  href?: string;
 }
 
 export interface WorkbenchData {

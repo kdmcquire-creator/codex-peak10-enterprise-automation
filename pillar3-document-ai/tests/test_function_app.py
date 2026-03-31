@@ -103,6 +103,40 @@ def test_stage_document_persists_binary_payload(monkeypatch):
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_list_documents_returns_recent_queue(monkeypatch):
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+    monkeypatch.setattr(function_app, "_repository", repo)
+
+    repo.save_document(
+        StagedDocument(
+            document_id="doc-a",
+            original_filename="Invoice_A.pdf",
+            source="pillar1",
+            status="classified",
+        )
+    )
+    repo.save_document(
+        StagedDocument(
+            document_id="doc-b",
+            original_filename="Receipt_B.pdf",
+            source="pillar4",
+            status="pending",
+        )
+    )
+
+    request = FakeRequest()
+    request.params = {"source": "pillar4", "limit": "10"}
+    response = function_app.list_documents(request)
+    payload = json.loads(response.get_body().decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["count"] == 1
+    assert payload["documents"][0]["document_id"] == "doc-b"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_stage_document_prefers_blob_storage_when_available(monkeypatch):
     temp_dir = _make_test_dir()
     monkeypatch.setenv("DOCUMENT_AI_STAGING_DIR", str(temp_dir / "staged-files"))

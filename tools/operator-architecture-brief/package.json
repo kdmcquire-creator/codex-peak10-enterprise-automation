@@ -1,0 +1,13 @@
+{
+  "name": "peak10-operator-architecture-brief",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Editable slide-style architecture brief for the Peak 10 enterprise automation platform.",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node build_deck.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

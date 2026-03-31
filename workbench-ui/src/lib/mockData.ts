@@ -6,10 +6,10 @@ export const mockWorkbenchData: WorkbenchData = {
   subheadline:
     "One governed surface for queue work, filing confidence, AP execution, and human approvals across the automation pillars.",
   heroStats: [
-    { label: "Priority items", value: "14", tone: "attention" },
-    { label: "Documents staged", value: "27", tone: "active" },
-    { label: "Pending approvals", value: "6", tone: "critical" },
-    { label: "Cross-pillar flows", value: "2 live", tone: "stable" }
+    { label: "Priority items", value: "14", tone: "attention", workspaceId: "inbox" },
+    { label: "Documents staged", value: "27", tone: "active", workspaceId: "documents" },
+    { label: "Pending approvals", value: "6", tone: "critical", workspaceId: "approvals" },
+    { label: "Cross-pillar flows", value: "2 live", tone: "stable", workspaceId: "ap" }
   ],
   sidebar: [
     {
@@ -56,6 +56,8 @@ export const mockWorkbenchData: WorkbenchData = {
       queueTone: "attention",
       primaryAction: "Review urgent thread",
       secondaryAction: "Run mailbox ingest",
+      primaryActionWorkspaceId: "inbox",
+      secondaryActionWorkspaceId: "documents",
       sections: [
         {
           eyebrow: "Morning brief",
@@ -91,6 +93,8 @@ export const mockWorkbenchData: WorkbenchData = {
       queueTone: "active",
       primaryAction: "Open staging queue",
       secondaryAction: "Review low-confidence items",
+      primaryActionWorkspaceId: "documents",
+      secondaryActionWorkspaceId: "approvals",
       sections: [
         {
           eyebrow: "Staging lane",
@@ -126,6 +130,8 @@ export const mockWorkbenchData: WorkbenchData = {
       queueTone: "active",
       primaryAction: "Start allocation run",
       secondaryAction: "Inspect expense intake",
+      primaryActionWorkspaceId: "ap",
+      secondaryActionWorkspaceId: "ap",
       sections: [
         {
           eyebrow: "Allocation engine",
@@ -161,6 +167,8 @@ export const mockWorkbenchData: WorkbenchData = {
       queueTone: "critical",
       primaryAction: "Review update batch",
       secondaryAction: "Open audit trail",
+      primaryActionWorkspaceId: "approvals",
+      secondaryActionWorkspaceId: "documents",
       sections: [
         {
           eyebrow: "Database updates",

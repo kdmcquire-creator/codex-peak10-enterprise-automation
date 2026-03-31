@@ -10,6 +10,7 @@ First-pass company operations interface for the Peak 10 automation platform.
 - Live overlay support for:
   - pillar health checks
   - Pillar 1 intake queue
+  - Pillar 3 recent staged documents
   - Pillar 3 database update queue
 
 ## Environment Wiring
@@ -39,7 +40,7 @@ If the machine still raises the same local Node `EPERM` launcher issue seen in C
 
 ## Near-Term UI Work
 
-1. Replace AP mock metrics with live Pillar 1 queue and export summaries.
-2. Replace Approvals mock metrics with live Pillar 3 review/apply state.
-3. Add Documents queue hydration from Pillar 3 staged documents.
-4. Add Inbox queue hydration from Pillar 2 mailbox ingest summaries.
+1. Add richer Documents lane detail cards from live Pillar 3 metadata.
+2. Add AP export summaries from Pillar 1 allocation/export history.
+3. Add Inbox queue hydration from Pillar 2 mailbox ingest summaries.
+4. Add operator action hooks for approve/review/file flows.

@@ -65,6 +65,31 @@ _correction_store = CorrectionStore()
 
 
 # ---------------------------------------------------------------------------
+# GET /api/documents
+# ---------------------------------------------------------------------------
+
+@app.route(route="documents", methods=["GET"])
+def list_documents(req: func.HttpRequest) -> func.HttpResponse:
+    status = str(req.params.get("status", "")).strip() or None
+    source = str(req.params.get("source", "")).strip() or None
+    try:
+        limit = int(req.params.get("limit", "50"))
+    except (TypeError, ValueError):
+        return _error("'limit' must be an integer", 400)
+
+    documents = _repository.list_documents(status=status, source=source, limit=limit)
+    return func.HttpResponse(
+        body=json.dumps({
+            "success": True,
+            "count": len(documents),
+            "documents": [serialize_staged_document(document) for document in documents],
+        }),
+        mimetype="application/json",
+        status_code=200,
+    )
+
+
+# ---------------------------------------------------------------------------
 # POST /api/documents/classify
 # ---------------------------------------------------------------------------
 

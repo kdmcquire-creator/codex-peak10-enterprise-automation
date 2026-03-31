@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { loadWorkbenchData } from "./lib/adapters";
 import type {
   ApprovalRecord,
+  HeroStat,
   PillarHealth,
   QueueTone,
   SidebarItem,
@@ -85,10 +86,11 @@ function App() {
           </div>
           <div className="hero-stats">
             {data.heroStats.map((stat) => (
-              <div className={`hero-stat tone-${stat.tone}`} key={stat.label}>
-                <span>{stat.label}</span>
-                <strong>{stat.value}</strong>
-              </div>
+              <HeroStatCard
+                key={stat.label}
+                stat={stat}
+                onOpenWorkspace={setActiveWorkspace}
+              />
             ))}
           </div>
         </header>
@@ -108,8 +110,20 @@ function App() {
           <p className="workspace-narrative">{detail.narrative}</p>
 
           <div className="action-row">
-            <button className="primary-action">{detail.primaryAction}</button>
-            <button className="secondary-action">{detail.secondaryAction}</button>
+            <ActionControl
+              className="primary-action"
+              label={detail.primaryAction}
+              href={detail.primaryActionHref}
+              workspaceId={detail.primaryActionWorkspaceId}
+              onOpenWorkspace={setActiveWorkspace}
+            />
+            <ActionControl
+              className="secondary-action"
+              label={detail.secondaryAction}
+              href={detail.secondaryActionHref}
+              workspaceId={detail.secondaryActionWorkspaceId}
+              onOpenWorkspace={setActiveWorkspace}
+            />
           </div>
 
           <div className="section-grid">
@@ -153,18 +167,6 @@ function App() {
       <aside className="inspector">
         <section className="inspector-section">
           <div className="section-title">
-            <span className="eyebrow">Live pillars</span>
-            <h3>Service state</h3>
-          </div>
-          <div className="pillar-list">
-            {data.pillars.map((pillar) => (
-              <PillarRow key={pillar.id} pillar={pillar} />
-            ))}
-          </div>
-        </section>
-
-        <section className="inspector-section">
-          <div className="section-title">
             <span className="eyebrow">Human decisions</span>
             <h3>Approval queue</h3>
           </div>
@@ -174,8 +176,111 @@ function App() {
             ))}
           </div>
         </section>
+
+        <section className="inspector-section">
+          <div className="section-title">
+            <span className="eyebrow">Live pillars</span>
+            <h3>Service state</h3>
+          </div>
+          <div className="pillar-list">
+            {data.pillars.map((pillar) => (
+              <PillarRow key={pillar.id} pillar={pillar} />
+            ))}
+          </div>
+        </section>
       </aside>
     </main>
+  );
+}
+
+function ActionControl({
+  className,
+  label,
+  href,
+  workspaceId,
+  onOpenWorkspace
+}: {
+  className: string;
+  label: string;
+  href?: string;
+  workspaceId?: WorkspaceId;
+  onOpenWorkspace: (workspaceId: WorkspaceId) => void;
+}) {
+  if (href) {
+    return (
+      <a
+        className={className}
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => {
+          if (workspaceId) {
+            onOpenWorkspace(workspaceId);
+          }
+        }}
+      >
+        {label}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => {
+        if (workspaceId) {
+          onOpenWorkspace(workspaceId);
+        }
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function HeroStatCard({
+  stat,
+  onOpenWorkspace
+}: {
+  stat: HeroStat;
+  onOpenWorkspace: (workspaceId: WorkspaceId) => void;
+}) {
+  const className = `hero-stat tone-${stat.tone} ${stat.href || stat.workspaceId ? "is-interactive" : ""}`;
+
+  if (stat.href) {
+    return (
+      <a
+        className={className}
+        href={stat.href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => {
+          if (stat.workspaceId) {
+            onOpenWorkspace(stat.workspaceId);
+          }
+        }}
+      >
+        <span>{stat.label}</span>
+        <strong>{stat.value}</strong>
+      </a>
+    );
+  }
+
+  if (stat.workspaceId) {
+    return (
+      <button type="button" className={className} onClick={() => onOpenWorkspace(stat.workspaceId!)}>
+        <span>{stat.label}</span>
+        <strong>{stat.value}</strong>
+      </button>
+    );
+  }
+
+  return (
+    <div className={className}>
+      <span>{stat.label}</span>
+      <strong>{stat.value}</strong>
+    </div>
   );
 }
 
@@ -205,8 +310,8 @@ function WorkspaceButton({
 }
 
 function PillarRow({ pillar }: { pillar: PillarHealth }) {
-  return (
-    <article className={`pillar-row status-${pillar.status}`}>
+  const content = (
+    <>
       <div>
         <h4>{pillar.name}</h4>
         <p>{pillar.summary}</p>
@@ -215,13 +320,28 @@ function PillarRow({ pillar }: { pillar: PillarHealth }) {
         <strong>{pillar.latencyMs}ms</strong>
         <span>{pillar.status}</span>
       </div>
-    </article>
+    </>
   );
+
+  if (pillar.href) {
+    return (
+      <a
+        className={`pillar-row is-link status-${pillar.status}`}
+        href={pillar.href}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <article className={`pillar-row status-${pillar.status}`}>{content}</article>;
 }
 
 function ApprovalRow({ approval }: { approval: ApprovalRecord }) {
-  return (
-    <article className="approval-row">
+  const content = (
+    <>
       <div>
         <span className="approval-id">{approval.id}</span>
         <h4>{approval.type}</h4>
@@ -232,8 +352,23 @@ function ApprovalRow({ approval }: { approval: ApprovalRecord }) {
         <span>{approval.owner}</span>
         <small>{approval.updatedAt}</small>
       </div>
-    </article>
+    </>
   );
+
+  if (approval.href) {
+    return (
+      <a
+        className="approval-row is-link"
+        href={approval.href}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <article className="approval-row">{content}</article>;
 }
 
 function TimelineCard({ entry }: { entry: TimelineEntry }) {

@@ -17,6 +17,48 @@ servers:
     description: Local development
 
 paths:
+  /documents:
+    get:
+      operationId: listDocuments
+      summary: List recent staged documents
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional staged document status filter
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional source filter such as upload, email, pillar1, or pillar4
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        "200":
+          description: Recent staged documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                  documents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StagedDocument"
+
   /documents/stage:
     post:
       operationId: stageDocument

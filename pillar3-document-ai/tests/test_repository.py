@@ -63,6 +63,35 @@ def test_save_and_get_document():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_list_documents_filters_by_status_and_source():
+    temp_dir = _make_test_dir()
+    repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))
+
+    first = StagedDocument(
+        document_id="doc-1",
+        original_filename="Invoice_1.pdf",
+        source="pillar1",
+        status="classified",
+    )
+    second = StagedDocument(
+        document_id="doc-2",
+        original_filename="Receipt_1.pdf",
+        source="pillar4",
+        status="pending",
+    )
+    repo.save_document(first)
+    repo.save_document(second)
+
+    classified = repo.list_documents(status="classified", limit=10)
+    pillar4 = repo.list_documents(source="pillar4", limit=10)
+
+    assert len(classified) == 1
+    assert classified[0].document_id == "doc-1"
+    assert len(pillar4) == 1
+    assert pillar4[0].document_id == "doc-2"
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_save_correction_and_count():
     temp_dir = _make_test_dir()
     repo = DocumentRepository(db_path=str(temp_dir / "document-ai.db"))

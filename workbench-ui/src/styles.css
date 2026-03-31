@@ -42,6 +42,11 @@ button {
   font: inherit;
 }
 
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 .app-shell {
   position: relative;
   min-height: 100vh;
@@ -236,10 +241,18 @@ button {
 }
 
 .hero-stat {
+  display: block;
+  width: 100%;
+  text-align: left;
   padding: 16px 18px;
   border-radius: 18px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.02);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.hero-stat.is-interactive {
+  cursor: pointer;
 }
 
 .hero-stat span,
@@ -255,6 +268,12 @@ button {
 .hero-stat strong {
   font-family: var(--font-display);
   font-size: 1.6rem;
+}
+
+.hero-stat.is-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .workspace-stage {
@@ -302,6 +321,9 @@ button {
 
 .primary-action,
 .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   padding: 12px 18px;
   border: 1px solid var(--line);
@@ -453,6 +475,7 @@ button {
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.02);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 }
 
 .pillar-row h4,
@@ -476,6 +499,23 @@ button {
 .approval-meta span,
 .approval-meta small {
   color: var(--muted);
+}
+
+.pillar-row.is-link:hover,
+.approval-row.is-link:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.workspace-button:focus-visible,
+.hero-stat.is-interactive:focus-visible,
+.primary-action:focus-visible,
+.secondary-action:focus-visible,
+.pillar-row.is-link:focus-visible,
+.approval-row.is-link:focus-visible {
+  outline: 2px solid rgba(125, 197, 255, 0.7);
+  outline-offset: 2px;
 }
 
 .loading-shell {

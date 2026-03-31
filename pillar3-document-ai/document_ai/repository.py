@@ -186,6 +186,27 @@ class DocumentRepository:
             return None
         return deserialize_staged_document(json.loads(row["payload_json"]))
 
+    def list_documents(
+        self,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        limit: int = 50,
+    ) -> list[StagedDocument]:
+        safe_limit = max(1, min(limit, 500))
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT payload_json FROM documents ORDER BY updated_at DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
+
+        documents = [deserialize_staged_document(json.loads(row["payload_json"])) for row in rows]
+        if status:
+            documents = [document for document in documents if document.status == status]
+        if source:
+            documents = [document for document in documents if document.source == source]
+        return documents[:safe_limit]
+
     def save_correction(self, correction: CorrectionLog) -> CorrectionLog:
         payload = json.dumps(serialize_correction(correction))
         with self._lock, self._conn:
