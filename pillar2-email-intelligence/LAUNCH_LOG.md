@@ -221,6 +221,20 @@ Why it matters:
 - operators can review, approve, and revisit event drafts across Morning Brief sessions
 - calendar creation remains explicitly human-approved instead of silently automating scheduling
 
+### Event-Draft Approval And Create-Event UX
+
+What changed:
+
+- the review surface now exposes saved event-draft state more fully, including status, created-event metadata, and scheduled event times
+- saved event drafts in context now show operator actions for `Approve draft` and `Create event` when the workflow state allows it
+- calendar-event creation now retries once after resetting the cached Graph client when Graph returns `401`/`403` auth-style failures, which helps after fresh admin consent without requiring a manual app restart
+
+Why it matters:
+
+- operators can move from suggestion to approved event creation inside the same review surface instead of hopping between raw API calls
+- the event-draft workflow is now closer to a complete operator lane rather than a backend-only capability
+- fresh Graph permission grants are less likely to look broken just because the function runtime is still holding a stale app-only token
+
 ### Morning Brief Quality
 
 What changed:
@@ -295,3 +309,31 @@ This log is meant to answer:
 - What still needs explicit validation when we move to Peak 10?
 
 It should be updated after each meaningful live validation or deployment issue.
+
+## 2026-03-27: Reply/Event Approval Surface Tightening
+
+- Expanded the Morning Brief review context so saved reply drafts now show approval state, draft body, recipient metadata, and operator actions to approve or send directly from the context panel.
+- Expanded saved event-draft context so operators can approve a draft, set a concrete start time, create the calendar event, and open the resulting Outlook event link from the same panel.
+- Successful reply sends and successful event creation now resolve the linked brief item automatically, keeping the follow-up queue cleaner after action is taken.
+- Added a retry path for Graph calendar creation that resets the cached Graph client on stale-auth `401/403` responses, which mattered immediately after new Graph calendar permissions were granted.
+- Found and fixed a deployment outage where the remote package was missing `email_intel/pillar_clients.py`; that missing import prevented function indexing and caused all routes, including `/api/health`, to return `404`.
+- Live validation confirmed a real Graph calendar event was created and the related brief item resolved with reason `scheduled`.
+
+## 2026-03-27: Approval UX Polish
+
+- Approval is now reversible for both reply drafts and event drafts while they are still unsent/uncreated, which gives operators a safer review loop when they want to back a draft out of the ready state.
+- Reply drafts now surface an explicit approval note in context, and the operator can edit that note before approving, unapproving, or sending the draft.
+- Event drafts now surface editable review notes in context so approval rationale and scheduling caveats can stay attached to the draft before event creation.
+- Brief-item context serialization now includes clearer draft status values (`draft`, `approved`, `sent`) and normalizes event-draft review notes so list-shaped review output no longer leaks into the UI as raw Python-ish values.
+
+## 2026-03-27: Queue Hygiene and Context Clarity
+
+- Brief items now expose a single activity timestamp and label (`Latest activity`, `Cleared`, `Dismissed`) so the review surface can explain when something last changed without guessing which backend timestamp matters.
+- Resolved and dismissed rows now surface a concise status summary derived from their reason label and optional detail, which makes the `Recently Cleared` area easier to scan.
+- The review UI now sorts queue and cleared items by recency before rendering, so the newest operator changes rise to the top instead of inheriting storage order.
+
+## 2026-03-27: Review Surface Visual Polish
+
+- Reframed the Morning Brief review page from a generic operations dashboard into a warmer editorial review desk with stronger type hierarchy, subtler chrome, and calmer panel composition.
+- Added a more poster-like command header, tactile row styling, and a sticky context inspector so the primary workspace stays readable while the operator reviews underlying detail.
+- Introduced restrained entrance motion and stronger action styling without changing the validated review workflows, so the page feels more deliberate without becoming harder to operate.
